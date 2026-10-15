@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-build.txt
+      - run: python -m pytest -q tests
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-build.txt
+      - run: pyinstaller --noconfirm crypto_radar.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Crypto-Radar-Ultimate-Windows
+          path: dist/Crypto Radar Ultimate.exe
+
+  macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-build.txt
+      - run: pyinstaller --noconfirm crypto_radar.spec
+      - run: hdiutil create -volname "Crypto Radar Ultimate" -srcfolder "dist/Crypto Radar Ultimate.app" -ov -format UDZO "dist/Crypto Radar Ultimate.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Crypto-Radar-Ultimate-macOS
+          path: dist/Crypto Radar Ultimate.dmg
