@@ -3,8 +3,8 @@
 Questo è il file d'ingresso usato da PyInstaller per creare l'.exe (Windows)
 o l'.app (macOS). Da sorgente:  python launcher.py
 
-Con l'opzione --monitor esegue solo il controllo delle azioni e invia gli avvisi,
-senza aprire la finestra (usato dal controllo orario di Windows).
+Senza finestra:  --monitor  un controllo delle azioni con invio degli avvisi
+                 --bot      bot Telegram + controllo ogni ora (avviato dalle Impostazioni)
 """
 
 import multiprocessing
@@ -30,11 +30,15 @@ def get_script_path() -> str:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    if "--monitor" in sys.argv:
-        sys.path.insert(0, os.path.dirname(get_script_path()))
+    sys.path.insert(0, os.path.dirname(get_script_path()))
+    if "--monitor" in sys.argv:  # solo il controllo, senza finestra
         from stocks.monitor import main as monitor_main
 
         sys.exit(monitor_main([a for a in sys.argv[1:] if a != "--monitor"]))
+    if "--bot" in sys.argv:  # bot Telegram + controllo orario in background
+        from stocks.telegram_bot import main as bot_main
+
+        sys.exit(bot_main([a for a in sys.argv[1:] if a != "--bot"]))
 
     from streamlit_desktop_app import start_desktop_app
 

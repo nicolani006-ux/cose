@@ -4,25 +4,50 @@ from __future__ import annotations
 
 import io
 import json
-import os
+import time
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
+import nav
 from charts import macd_chart, price_chart, rsi_chart
 from indicators import add_indicators
-from stocks import notify, scheduler
 from stocks.analysis import macro_tone, score_stocks
-from stocks.config import REPORT_DIR, UNIVERSE, load_config, save_config, ticker_info
-from stocks.monitor import collect, run_once
+from stocks.config import REPORT_DIR, load_config, ticker_info
+from stocks.monitor import collect, load_snapshot, run_once, save_snapshot
 
 TITLE = "Stock Radar – Azioni & Istituzioni"
 
 
-@st.cache_data(ttl=900, show_spinner=False)
-def load_snapshot(cfg_json: str):
-    return collect(json.loads(cfg_json))
+FRESH_SECONDS = 900  # i dati in memoria vengono riusati per 15 minuti
+
+
+@st.cache_resource
+def _memory() -> dict:
+    return {}
+
+
+def get_snapshot(cfg: dict, force: bool = False):
+    """Dati dalla memoria, dall'ultimo controllo del bot (se recente) o scaricati ora mostrando i progressi."""
+    mem, key = _memory(), _cfg_key(cfg)
+    if not force:
+        hit = mem.get(key)
+        if hit and time.time() - hit[0] < FRESH_SECONDS:
+            return hit[1]
+        disk = load_snapshot(max_age_min=60, watchlist=cfg["watchlist"])
+        if disk is not None:
+            mem[key] = (disk.fetched_at.timestamp(), disk)
+            return disk
+    with st.status("Raccolgo prezzi, giudizi delle banche, notizie e dati SEC… (1–2 minuti la prima volta)",
+                   expanded=True) as status:
+        st.caption("Intanto puoi aprire ⚙️ Impostazioni & Bot dal menu a sinistra.")
+        snap = collect(cfg, progress=lambda label, ok: status.write(("✅ " if ok else "⚠️ ") + label))
+        status.update(label="Dati pronti", state="complete", expanded=False)
+    if snap.prices:
+        save_snapshot(snap)
+    mem[key] = (time.time(), snap)
+    return snap
 
 
 def _cfg_key(cfg: dict) -> str:
@@ -180,81 +205,28 @@ def tab_alerts(cfg: dict, snap) -> None:
                      column_config={"link": st.column_config.LinkColumn("Link")})
 
 
-def tab_settings(cfg: dict) -> None:
-    with st.form("settings"):
-        st.subheader("Avvisi")
-        token = st.text_input("Token del bot Telegram", cfg["telegram_token"], type="password",
-                              help="Crealo scrivendo /newbot a @BotFather su Telegram.")
-        chat = st.text_input("Chat ID Telegram", cfg["telegram_chat_id"])
-        desk = st.checkbox("Notifiche sul desktop", cfg["notifiche_desktop"])
-        level = st.selectbox("Invia avvisi di livello almeno", ["info", "media", "alta"],
-                             index=["info", "media", "alta"].index(cfg["livello_minimo_avviso"]))
-        always = st.checkbox("Invia il riepilogo ad ogni controllo anche senza novità", cfg["invia_riepilogo_sempre"])
-        st.subheader("Fonti")
-        ua = st.text_input("Nome ed email per la SEC (obbligatorio per EDGAR)", cfg["sec_user_agent"],
-                           placeholder="Mario Rossi mario.rossi@email.it")
-        c13, c8 = st.columns(2)
-        f13 = c13.checkbox("Analizza i 13F di BlackRock / Vanguard / State Street", cfg["controlla_13f"])
-        f8 = c8.checkbox("Controlla le comunicazioni 8-K", cfg["controlla_8k"])
-        wl = st.text_area("Watchlist (ticker separati da virgola)", ", ".join(cfg["watchlist"]), height=120,
-                          help="Titoli USA come su Yahoo Finance (es. BRK-B). Nomi e settori sono già noti per: "
-                               + ", ".join(UNIVERSE))
-        if st.form_submit_button("💾 Salva", type="primary"):
-            cfg.update(telegram_token=token.strip(), telegram_chat_id=chat.strip(), notifiche_desktop=desk,
-                       livello_minimo_avviso=level, invia_riepilogo_sempre=always, sec_user_agent=ua.strip(),
-                       controlla_13f=f13, controlla_8k=f8,
-                       watchlist=[t.strip().upper() for t in wl.replace("\n", ",").split(",") if t.strip()])
-            save_config(cfg)
-            st.cache_data.clear()
-            st.success("Impostazioni salvate.")
-
-    c1, c2 = st.columns(2)
-    if c1.button("🔔 Invia notifica di prova"):
-        st.write(notify.notify_all(cfg, "📊 Radar Azioni – prova", "Le notifiche funzionano ✅", "Le notifiche funzionano ✅")
-                 or "Nessun canale configurato.")
-    if c2.button("🔎 Trova il mio Chat ID Telegram", disabled=not cfg["telegram_token"],
-                 help="Prima scrivi un messaggio qualsiasi al tuo bot su Telegram."):
-        try:
-            ids = notify.find_chat_ids(cfg["telegram_token"])
-            st.write(ids or "Nessun messaggio trovato: scrivi qualcosa al bot e riprova.")
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Errore: {e}")
-
-    st.subheader("Controllo automatico ogni ora")
-    if os.name == "nt":
-        installed = scheduler.is_installed()
-        st.write("Stato: " + ("✅ attivo" if installed else "❌ non attivo"))
-        a, b = st.columns(2)
-        if a.button("Attiva controllo orario", disabled=installed):
-            ok, msg = scheduler.install()
-            (st.success if ok else st.error)(msg)
-        if b.button("Disattiva", disabled=not installed):
-            ok, msg = scheduler.uninstall()
-            (st.success if ok else st.error)(msg)
-        st.caption("Usa l'Utilità di pianificazione di Windows: il controllo parte ogni ora anche ad app chiusa "
-                   "(il PC deve essere acceso).")
-    else:
-        st.caption(f"Su questo sistema avvia `python monitor.py --loop 60` oppure pianifica: `{scheduler.task_command()}`")
-
-
 def main() -> None:
     st.set_page_config(page_title="Stock Radar", page_icon="📈", layout="wide")
     cfg = load_config()
     st.title("📈 " + TITLE)
-    if st.sidebar.button("🔄 Aggiorna dati", width="stretch"):
-        st.cache_data.clear()
-    st.sidebar.caption("Dati aggiornati ogni 15 minuti. Fonti: Fed, BCE, SEC EDGAR, Google News "
-                       "(Reuters, Bloomberg, WSJ…), Yahoo Finance. **Non è consulenza finanziaria.**")
+    force = st.sidebar.button("🔄 Aggiorna dati", width="stretch")
+    st.sidebar.caption("Fonti: Fed, BCE, SEC EDGAR, Google News (Reuters, Bloomberg, WSJ…), Yahoo Finance. "
+                       "**Non è consulenza finanziaria.**")
+    if not cfg["telegram_token"] or not cfg["sec_user_agent"]:
+        missing = [x for x, ok in (("il bot Telegram", cfg["telegram_token"]),
+                                   ("nome ed email per la SEC", cfg["sec_user_agent"])) if not ok]
+        st.info("Da configurare: " + " e ".join(missing) + ".")
+        st.page_link(nav.settings_page(), label="Apri Impostazioni & Bot", icon="⚙️")
 
-    with st.spinner("Raccolgo prezzi, giudizi delle banche, notizie e dati SEC… (fino a un minuto)"):
-        snap = load_snapshot(_cfg_key(cfg))
+    snap = get_snapshot(cfg, force=force)
     ranking = score_stocks(snap, cfg["watchlist"])
+    st.caption(f"Dati del {snap.fetched_at.tz_convert(None):%d/%m/%Y %H:%M} UTC")
     if snap.errors:
         with st.expander(f"⚠️ {len(snap.errors)} fonti con problemi"):
             st.write(snap.errors)
 
     tabs = st.tabs(["🏆 Classifica", "📈 Analisi titolo", "🏛️ Istituzioni & politica", "🏦 Banche d'affari",
-                    "🏢 SEC & 13F", "🔔 Avvisi", "⚙️ Impostazioni"])
+                    "🏢 SEC & 13F", "🔔 Avvisi"])
     if ranking.empty:
         for tab in tabs[:2]:
             tab.error("Prezzi non disponibili: controlla la connessione a Internet.")
@@ -272,8 +244,6 @@ def main() -> None:
         tab_sec(snap)
     with tabs[5]:
         tab_alerts(cfg, snap)
-    with tabs[6]:
-        tab_settings(cfg)
 
 
 if __name__ == "__main__":

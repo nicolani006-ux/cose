@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 import re
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -42,6 +43,7 @@ NEGATIVE_8K = {"1.03", "2.06", "3.01", "4.01", "4.02"}
 MONETARY = re.compile(r"FOMC|monetary policy|federal funds|interest rate|target range|policy rate|"
                       r"key ECB interest|beige book", re.I)
 MAX_AGE = pd.Timedelta(days=3)
+NEWS_COLUMNS = ["id", "group", "kind", "publisher", "title", "summary", "link", "published"]
 
 
 @dataclass
@@ -54,6 +56,7 @@ class Snapshot:
     holdings: pd.DataFrame = field(default_factory=pd.DataFrame)
     filings_13f: list = field(default_factory=list)
     errors: list = field(default_factory=list)
+    watchlist: list = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -74,8 +77,7 @@ def _collect_news(errors: list) -> pd.DataFrame:
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         items = [i for res in pool.map(one, jobs) for i in res]
-    cols = ["id", "group", "kind", "publisher", "title", "summary", "link", "published"]
-    return pd.DataFrame(items, columns=cols).drop_duplicates("id")
+    return pd.DataFrame(items, columns=NEWS_COLUMNS).drop_duplicates("id")
 
 
 def _collect_13f(sec, watchlist: list[str], errors: list) -> tuple[pd.DataFrame, list]:
@@ -98,36 +100,84 @@ def _collect_13f(sec, watchlist: list[str], errors: list) -> tuple[pd.DataFrame,
     return (pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=cols)), meta
 
 
-def collect(cfg: dict) -> Snapshot:
+SOURCE_TIMEOUT = 150  # secondi: oltre, la fonte viene saltata e segnalata
+SNAPSHOT_FILE = CACHE_DIR / "ultimo_snapshot.pkl"
+
+
+def collect(cfg: dict, progress=None, timeout: float = SOURCE_TIMEOUT) -> Snapshot:
+    """Scarica tutte le fonti in parallelo. `progress(nome_fonte, ok)` viene chiamata
+    (dal thread chiamante) man mano che ogni fonte termina."""
     wl = cfg["watchlist"]
-    snap = Snapshot(fetched_at=pd.Timestamp.now(tz="UTC"))
+    snap = Snapshot(fetched_at=pd.Timestamp.now(tz="UTC"), watchlist=list(wl))
     errors: list[str] = []
     sec = sources.Sec(cfg.get("sec_user_agent", ""), CACHE_DIR)
+    empty_holdings = pd.DataFrame(columns=["ticker", "shares_prev", "shares_now", "change_pct", "filer"])
 
-    def guarded(label, fn, default):
-        try:
-            return fn()
-        except Exception as e:  # noqa: BLE001
-            errors.append(f"{label}: {type(e).__name__}: {e}"[:160])
-            return default
+    jobs = {
+        "Notizie e comunicati": (lambda: _collect_news(errors), pd.DataFrame(columns=NEWS_COLUMNS)),
+        "Prezzi": (lambda: sources.fetch_prices(wl), {}),
+        "Giudizi delle banche": (lambda: sources.fetch_ratings(wl, ANALYST_FIRMS), pd.DataFrame()),
+    }
+    if cfg.get("controlla_8k"):
+        jobs["SEC 8-K"] = (lambda: sec.recent_8k(wl), pd.DataFrame())
+    if cfg.get("controlla_13f"):
+        jobs["SEC 13F"] = (lambda: _collect_13f(sec, wl, errors), (empty_holdings, []))
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        f_news = pool.submit(_collect_news, errors)
-        f_prices = pool.submit(guarded, "Prezzi", lambda: sources.fetch_prices(wl), {})
-        f_ratings = pool.submit(guarded, "Giudizi analisti", lambda: sources.fetch_ratings(wl, ANALYST_FIRMS), pd.DataFrame())
-        f_8k = pool.submit(guarded, "SEC 8-K", lambda: sec.recent_8k(wl), pd.DataFrame()) if cfg.get("controlla_8k") else None
-        f_13f = pool.submit(_collect_13f, sec, wl, errors) if cfg.get("controlla_13f") else None
-        snap.news = enrich_news(f_news.result(), wl)
-        snap.prices = f_prices.result()
-        snap.ratings = f_ratings.result()
-        snap.filings = f_8k.result() if f_8k else pd.DataFrame()
-        if f_13f:
-            snap.holdings, snap.filings_13f = f_13f.result()
-    if not snap.prices:
+    pool = ThreadPoolExecutor(max_workers=len(jobs))
+    futures = {pool.submit(fn): label for label, (fn, _) in jobs.items()}
+    results: dict = {}
+    try:
+        for fut in as_completed(futures, timeout=timeout):
+            label = futures[fut]
+            try:
+                results[label] = fut.result()
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{label}: {type(e).__name__}: {e}"[:160])
+            if progress:
+                progress(label, label in results)
+    except TimeoutError:
+        for fut, label in futures.items():
+            if not fut.done():
+                errors.append(f"{label}: tempo scaduto (oltre {timeout:.0f} s)")
+                if progress:
+                    progress(label, False)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    def get(label):
+        return results.get(label, jobs[label][1]) if label in jobs else None
+
+    snap.news = enrich_news(get("Notizie e comunicati"), wl)
+    snap.prices = get("Prezzi")
+    snap.ratings = get("Giudizi delle banche")
+    snap.filings = get("SEC 8-K") if "SEC 8-K" in jobs else pd.DataFrame()
+    if "SEC 13F" in jobs:
+        snap.holdings, snap.filings_13f = get("SEC 13F")
+    if not snap.prices and "Prezzi" in results:
         errors.append("Prezzi: nessun dato scaricato (Yahoo Finance non raggiungibile?)")
     if not cfg.get("sec_user_agent"):
         errors.append("SEC: imposta nome ed email nelle impostazioni (richiesto da EDGAR)")
     snap.errors = errors
+    return snap
+
+
+def save_snapshot(snap: Snapshot) -> None:
+    SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SNAPSHOT_FILE.with_suffix(".tmp")
+    tmp.write_bytes(pickle.dumps(snap))
+    tmp.replace(SNAPSHOT_FILE)
+
+
+def load_snapshot(max_age_min: float = 60, watchlist: list[str] | None = None) -> Snapshot | None:
+    """Ultimo snapshot salvato dal controllo orario/bot, se abbastanza recente."""
+    try:
+        snap = pickle.loads(SNAPSHOT_FILE.read_bytes())
+    except Exception:  # noqa: BLE001 - file assente, vecchio o di un'altra versione
+        return None
+    if pd.Timestamp.now(tz="UTC") - snap.fetched_at > pd.Timedelta(minutes=max_age_min):
+        return None
+    if watchlist is not None and set(watchlist) != set(getattr(snap, "watchlist", [])):
+        return None
     return snap
 
 
@@ -288,7 +338,10 @@ def run_once(cfg: dict | None = None, notify: bool = True, snap: Snapshot | None
     # Primo giro = nessun avviso ancora registrato (anche se i giri precedenti sono falliti
     # per mancanza di rete): si registra tutto come "già visto" senza inondare di messaggi.
     first_run = not state.get("seen")
-    snap = snap or collect(cfg)
+    if snap is None:
+        snap = collect(cfg)
+        if snap.prices:
+            save_snapshot(snap)
     ranking = score_stocks(snap, cfg["watchlist"])
     alerts = build_alerts(snap, ranking, state)
 

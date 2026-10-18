@@ -52,4 +52,5 @@ def snapshot(rating_rows=None, extra_news=None, holdings=None, filings=None) -> 
         news=enrich_news(news, wl),
         filings=filings if filings is not None else pd.DataFrame(),
         holdings=holdings if holdings is not None else pd.DataFrame(),
+        watchlist=wl,
     )

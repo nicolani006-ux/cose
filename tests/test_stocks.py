@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 import fake_stocks as fk
-from stocks import analysis, monitor, notify, scheduler, sources
+from stocks import analysis, background, monitor, notify, sources
 from stocks.config import STATE_FILE, REPORT_DIR
 
 NOW = pd.Timestamp.now(tz="UTC")
@@ -237,10 +237,18 @@ def test_telegram_send_and_chat_ids():
     assert notify.find_chat_ids("TOKEN", session=S()) == ["42 (Nico)"]
 
 
-def test_windows_task_command():
-    args = scheduler.install_args()
-    assert args[:5] == ["schtasks", "/Create", "/F", "/SC", "HOURLY"]
-    assert args[-1].endswith('monitor.py"')
+def test_background_command_and_single_instance():
+    cmd = background.command()
+    assert cmd[-1].endswith("bot.py")
+    lock = background.acquire_instance_lock()
+    assert lock is not None and background.is_running()
+    assert background.acquire_instance_lock() is None  # un secondo bot non parte
+    lock.close()
+    assert not background.is_running()
+    background.request_stop()
+    assert background.stop_requested()
+    background.clear_stop()
+    assert not background.stop_requested()
 
 
 # --------------------------------------------------------------------------- #
@@ -254,7 +262,8 @@ def test_stock_page_renders(monkeypatch):
 
     snap = fk.snapshot(rating_rows=[
         ("NVDA", NOW, "Goldman Sachs", "Goldman Sachs", 1.0, "up", "Neutral", "Buy", 220.0, 180.0)])
-    monkeypatch.setattr(stock_radar, "collect", lambda cfg: snap)
+    monkeypatch.setattr(stock_radar, "collect", lambda cfg, progress=None: snap)
+    monkeypatch.setattr(stock_radar, "load_snapshot", lambda **k: None)
     monkeypatch.setattr(stock_radar, "load_config", lambda: {
         **__import__("stocks.config", fromlist=["x"]).DEFAULT_CONFIG, "watchlist": CFG["watchlist"]})
 
@@ -265,7 +274,7 @@ def test_stock_page_renders(monkeypatch):
     at = AppTest.from_function(page, default_timeout=60)
     at.run()
     assert not at.exception, at.exception
-    assert len(at.tabs) == 7
+    assert len(at.tabs) == 6
     assert at.dataframe[0].value.iloc[0]["ticker"] == "NVDA"
     assert any("Goldman Sachs" in str(d.value.to_dict()) for d in at.dataframe)
 
@@ -275,8 +284,62 @@ def test_app_navigation_has_both_pages():
     from pathlib import Path
 
     src = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
-    assert "trend_crypto.main" in src and "stock_radar.main" in src
-    at = AppTest.from_string(src.replace("page.run()", "st.write(page.title)"), default_timeout=30)
+    probe = ('st.write(page.title)\nst.write(",".join(p()._url_path for p in '
+             '(nav.crypto_page, nav.stocks_page, nav.settings_page)))')
+    at = AppTest.from_string(src.replace("page.run()", probe), default_timeout=30)
     at.run()
     assert not at.exception, at.exception
     assert at.markdown[0].value == "Crypto"
+    assert at.markdown[1].value == "crypto,azioni,impostazioni"
+
+
+def test_settings_page_opens_without_loading_data(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    import settings_page
+
+    def page():
+        import settings_page as sp
+        sp.main()
+
+    at = AppTest.from_function(page, default_timeout=30)
+    at.run()
+    assert not at.exception, at.exception
+    assert [h.value for h in at.header] == ["🤖 Bot Telegram", "🔔 Avvisi", "📡 Fonti e watchlist"]
+    at.text_input[0].input("123:ABC")
+    at.button[0].click().run()  # Salva token
+    assert monitor.load_config()["telegram_token"] == "123:ABC"
+    assert not at.exception, at.exception
+    assert any("Avvia bot" in b.label for b in at.button)
+    from stocks.config import DEFAULT_CONFIG, save_config
+    save_config(dict(DEFAULT_CONFIG))
+    assert settings_page is not None
+
+
+def test_collect_reports_progress_and_times_out(monkeypatch):
+    import threading
+
+    release = threading.Event()
+
+    def slow_ratings(wl, firms):
+        release.wait(10)
+        return fk.ratings([])
+
+    monkeypatch.setattr(sources, "fetch_feed", lambda url, group, kind: [])
+    monkeypatch.setattr(sources, "fetch_prices", lambda wl: {"NVDA": fk.prices(0.002)})
+    monkeypatch.setattr(sources, "fetch_ratings", slow_ratings)
+    seen = []
+    snap = monitor.collect({**CFG, "sec_user_agent": "x", "controlla_13f": False, "controlla_8k": False},
+                           progress=lambda label, ok: seen.append((label, ok)), timeout=1)
+    release.set()
+    assert ("Prezzi", True) in seen and ("Notizie e comunicati", True) in seen
+    assert ("Giudizi delle banche", False) in seen
+    assert any("tempo scaduto" in e for e in snap.errors)
+    assert "NVDA" in snap.prices and snap.ratings.empty
+
+
+def test_snapshot_roundtrip_on_disk():
+    snap = fk.snapshot()
+    monitor.save_snapshot(snap)
+    assert monitor.load_snapshot(60, snap.watchlist).fetched_at == snap.fetched_at
+    assert monitor.load_snapshot(60, ["ALTRO"]) is None  # watchlist cambiata

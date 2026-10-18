@@ -10,9 +10,9 @@ binaries = []
 # app.py viene eseguito da Streamlit come file, quindi i moduli che importa
 # (e le loro dipendenze) vanno dichiarati esplicitamente.
 hiddenimports = [
-    "trend_crypto", "stock_radar", "indicators", "charts",
+    "nav", "trend_crypto", "stock_radar", "settings_page", "indicators", "charts",
     "stocks", "stocks.config", "stocks.sources", "stocks.analysis", "stocks.monitor",
-    "stocks.notify", "stocks.scheduler",
+    "stocks.notify", "stocks.background", "stocks.telegram_bot",
     "ccxt", "feedparser", "openpyxl", "altair", "requests", "yfinance",
 ]
 hiddenimports += collect_submodules("plyer")

@@ -39,3 +39,7 @@ jobs:
           key: monitor-state-${{ github.run_id }}
           restore-keys: monitor-state-
       - run: python monitor.py
+      # Risponde ai comandi arrivati nell'ultima ora. Attivalo (variabile BOT_SU_GITHUB = true)
+      # solo se il bot NON è acceso anche sul PC: due bot con lo stesso token si rubano i messaggi.
+      - if: ${{ vars.BOT_SU_GITHUB == 'true' }}
+        run: python bot.py --una-volta

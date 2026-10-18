@@ -5,6 +5,7 @@ App desktop (Streamlit + finestra nativa) con due sezioni:
 - **🪙 Crypto** – scanner di trend per criptovalute
 - **📈 Azioni & Istituzioni** – classifica delle azioni USA, giudizi delle grandi banche d'affari,
   Fed/BCE, SEC (8-K e 13F di BlackRock, Vanguard, State Street) e **avvisi automatici ogni ora**
+- **⚙️ Impostazioni & Bot** – configurazione e **bot Telegram** con comandi (/compra, /titolo NVDA, /fed…)
 
 ## 🪙 Crypto
 
@@ -65,29 +66,54 @@ Ad ogni controllo l'app confronta i dati con il controllo precedente e avvisa **
 
 Ogni messaggio termina con la classifica aggiornata dei **migliori candidati all'acquisto**.
 
-**Canali**: notifica di Windows e/o **Telegram** (arriva sul telefono). Per Telegram:
-1. su Telegram scrivi `/newbot` a **@BotFather** e copia il token;
-2. scrivi un messaggio qualsiasi al tuo nuovo bot;
-3. nell'app: *Azioni & Istituzioni → ⚙️ Impostazioni*, incolla il token, premi **Trova il mio Chat ID**,
-   copia il numero nel campo Chat ID e salva; poi **Invia notifica di prova**.
+**Canali**: **bot Telegram** (arriva sul telefono) e/o notifica di Windows.
+
+### 🤖 Bot Telegram
+
+Tutto si configura dalla pagina **⚙️ Impostazioni & Bot** (menu a sinistra), in 3 passi:
+
+1. **Crea il bot**: su Telegram scrivi `/newbot` a **@BotFather**, scegli un nome e incolla il token nell'app.
+2. **Avvia il bot**: premi *▶️ Avvia bot* (e spunta *Avvia automaticamente all'accesso a Windows*).
+   Il bot resta acceso in background anche ad app chiusa e fa il **controllo ogni ora**.
+3. **Collega il tuo account**: premi *Apri @tuobot su Telegram* e poi **Avvia**. Da quel momento il bot
+   risponde solo a te.
+
+Comandi (oppure i pulsanti che compaiono sotto la chat):
+
+| Comando | Cosa fa |
+|---|---|
+| `/compra` | migliori titoli da comprare ora, con i motivi |
+| `/evita` | titoli da evitare |
+| `/classifica` | classifica di tutta la watchlist |
+| `/titolo NVDA` (o solo `NVDA`) | analisi di un titolo: prezzo, punteggio, motivi, giudizi delle banche, notizie (anche fuori watchlist) |
+| `/fed` | tono della Fed e ultimi comunicati/discorsi |
+| `/banche` | ultimi giudizi di Goldman Sachs, J.P. Morgan, Morgan Stanley, Bank of America… |
+| `/fondi` | cosa comprano/vendono BlackRock, Vanguard, State Street (13F) |
+| `/notizie goldman` | ultime notizie (filtro facoltativo) |
+| `/avvisi` | ultimi avvisi |
+| `/controlla` | esegue subito il controllo completo |
+| `/crypto` | migliori criptovalute ora (Binance, 1h) |
+| `/watchlist`, `/aggiungi TSLA AMD`, `/rimuovi TSLA` | gestione della watchlist |
+| `/stato` | stato del bot e delle fonti |
 
 Nelle impostazioni inserisci anche **nome ed email** per la SEC (EDGAR li richiede a chi scarica i dati).
 
 ### Controllo ogni ora
 
-- **Con il PC acceso** (consigliato): *⚙️ Impostazioni → Attiva controllo orario*. Crea un'attività
-  nell'Utilità di pianificazione di Windows che ogni ora esegue `Crypto Radar Ultimate.exe --monitor`
-  (oppure `monitor.py` da sorgente), anche ad app chiusa.
-- **Da riga di comando**: `python monitor.py` (un controllo), `python monitor.py --loop 60` (ogni ora),
-  `python monitor.py --test-notifica`.
+- **Con il PC acceso** (consigliato): è il bot avviato al passo 2. Senza Telegram fa comunque il controllo
+  orario con le notifiche di Windows. Da riga di comando: `python bot.py`.
+- **Un controllo singolo**: `python monitor.py` (oppure `Crypto Radar Ultimate.exe --monitor`);
+  `python monitor.py --test-notifica` per provare le notifiche.
 - **Anche a PC spento** (GitHub Actions, workflow `monitor.yml`): nel repository su GitHub vai in
   *Settings → Secrets and variables → Actions* e crea i secret `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID`,
   `SEC_USER_AGENT` e la variabile `MONITOR_ATTIVO` = `true` (facoltativa `WATCHLIST`, es. `AAPL,NVDA,JPM`).
-  Funziona solo dal branch principale (`main`). Ogni controllo dura 1–2 minuti: su un repository privato
-  24 controlli al giorno usano gran parte dei 2000 minuti gratuiti mensili di GitHub.
+  Con la variabile `BOT_SU_GITHUB` = `true` risponde anche ai comandi, ma solo una volta all'ora e
+  **solo se il bot non è acceso anche sul PC**. Funziona dal branch principale (`main`). Ogni controllo dura
+  1–2 minuti: su un repository privato 24 controlli al giorno usano gran parte dei 2000 minuti gratuiti
+  mensili di GitHub.
 
 Dati, impostazioni e report sono nella cartella `RadarUltimate` dentro la tua cartella utente
-(`C:\Users\<nome>\RadarUltimate`): `config.json`, `report/ultimo_report.txt`, `report/storico_avvisi.csv`.
+(`C:\Users\<nome>\RadarUltimate`): `config.json`, `report/ultimo_report.txt`, `report/storico_avvisi.csv`, `bot.log`.
 
 > ⚠️ Il punteggio è un sistema automatico basato su regole: non prevede il futuro e non è consulenza
 > finanziaria. Usalo come punto di partenza per le tue valutazioni.
@@ -125,13 +151,15 @@ streamlit run app.py
 
 | File | Ruolo |
 |---|---|
-| `app.py` | Pagina iniziale con il menu Crypto / Azioni |
+| `app.py`, `nav.py` | Menu dell'app: Crypto / Azioni / Impostazioni |
+| `settings_page.py` | Pagina Impostazioni & Bot |
+| `bot.py` | Bot Telegram + controllo orario |
 | `trend_crypto.py` | Sezione Crypto |
 | `stock_radar.py` | Sezione Azioni & Istituzioni |
 | `stocks/` | Fonti dati, punteggio, avvisi, notifiche, pianificazione |
 | `monitor.py` | Controllo orario da riga di comando |
 | `indicators.py`, `charts.py` | Indicatori tecnici e grafici condivisi |
-| `launcher.py` | Apre l'app in una finestra desktop (punto d'ingresso dell'eseguibile; `--monitor` per il solo controllo) |
+| `launcher.py` | Apre l'app in una finestra desktop (punto d'ingresso dell'eseguibile; `--bot` e `--monitor` senza finestra) |
 | `crypto_radar.spec` | Configurazione PyInstaller per Windows e macOS |
 | `build_windows.bat` / `build_mac.sh` | Script di build |
 | `run_windows.bat` | Avvio rapido da sorgente |

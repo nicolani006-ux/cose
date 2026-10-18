@@ -1,13 +1,9 @@
-"""Punto d'ingresso dell'app: Crypto Radar e Stock Radar in un'unica finestra."""
+"""Punto d'ingresso dell'app: Crypto, Azioni e Impostazioni in un'unica finestra."""
 
 import streamlit as st
 
-import stock_radar
-import trend_crypto
+import nav
 
 st.set_page_config(page_title="Radar Ultimate", page_icon="📡", layout="wide")
-page = st.navigation([
-    st.Page(trend_crypto.main, title="Crypto", icon="🪙", url_path="crypto", default=True),
-    st.Page(stock_radar.main, title="Azioni & Istituzioni", icon="📈", url_path="azioni"),
-])
+page = st.navigation([nav.crypto_page(), nav.stocks_page(), nav.settings_page()])
 page.run()
