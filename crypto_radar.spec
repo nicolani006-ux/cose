@@ -3,14 +3,20 @@
 # Windows -> dist/Crypto Radar Ultimate.exe
 # macOS   -> dist/Crypto Radar Ultimate.app
 import sys
-from PyInstaller.utils.hooks import collect_all, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
-datas = [("trend_crypto.py", ".")]
+datas = [("app.py", ".")]
 binaries = []
-# trend_crypto.py viene eseguito da Streamlit come file, quindi le sue
-# dipendenze vanno dichiarate esplicitamente.
-hiddenimports = ["trend_crypto", "ccxt", "feedparser", "openpyxl", "altair", "requests"]
-for pkg in ("streamlit", "altair"):
+# app.py viene eseguito da Streamlit come file, quindi i moduli che importa
+# (e le loro dipendenze) vanno dichiarati esplicitamente.
+hiddenimports = [
+    "trend_crypto", "stock_radar", "indicators", "charts",
+    "stocks", "stocks.config", "stocks.sources", "stocks.analysis", "stocks.monitor",
+    "stocks.notify", "stocks.scheduler",
+    "ccxt", "feedparser", "openpyxl", "altair", "requests", "yfinance",
+]
+hiddenimports += collect_submodules("plyer")
+for pkg in ("streamlit", "altair", "yfinance", "curl_cffi"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

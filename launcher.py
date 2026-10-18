@@ -2,6 +2,9 @@
 
 Questo è il file d'ingresso usato da PyInstaller per creare l'.exe (Windows)
 o l'.app (macOS). Da sorgente:  python launcher.py
+
+Con l'opzione --monitor esegue solo il controllo delle azioni e invia gli avvisi,
+senza aprire la finestra (usato dal controllo orario di Windows).
 """
 
 import multiprocessing
@@ -15,8 +18,8 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 
-APP_TITLE = "Crypto Radar Ultimate"
-SCRIPT = "trend_crypto.py"
+APP_TITLE = "Crypto Radar Ultimate – Crypto & Azioni"
+SCRIPT = "app.py"
 
 
 def get_script_path() -> str:
@@ -27,6 +30,12 @@ def get_script_path() -> str:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    if "--monitor" in sys.argv:
+        sys.path.insert(0, os.path.dirname(get_script_path()))
+        from stocks.monitor import main as monitor_main
+
+        sys.exit(monitor_main([a for a in sys.argv[1:] if a != "--monitor"]))
+
     from streamlit_desktop_app import start_desktop_app
 
     start_desktop_app(

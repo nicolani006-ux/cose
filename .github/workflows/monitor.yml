@@ -1,0 +1,41 @@
+# Controllo orario delle azioni anche a PC spento, con avvisi su Telegram.
+# Si attiva solo se nel repository esiste la variabile MONITOR_ATTIVO = true
+# (Settings → Secrets and variables → Actions → Variables) e funziona sul branch principale.
+name: Controllo azioni ogni ora
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    if: ${{ vars.MONITOR_ATTIVO == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RADAR_HOME: ${{ github.workspace }}/.radar
+      RADAR_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      RADAR_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      RADAR_SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      RADAR_WATCHLIST: ${{ vars.WATCHLIST }}
+      RADAR_NOTIFICHE_DESKTOP: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-monitor.txt
+      - run: pip install -r requirements-monitor.txt
+      # Lo stato (avvisi già inviati) viene conservato tra un'esecuzione e l'altra
+      - uses: actions/cache@v4
+        with:
+          path: .radar
+          key: monitor-state-${{ github.run_id }}
+          restore-keys: monitor-state-
+      - run: python monitor.py
