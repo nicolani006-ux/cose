@@ -226,13 +226,46 @@ def trade_plan(df: pd.DataFrame) -> dict:
     }
 
 
+def simulate_trade(o, h, lo, c, t: int, buy: float, stop: float, target: float, horizon: int,
+                   fill_bars: int = PLAN_FILL_BARS) -> dict:
+    """Simula il piano partendo dal segnale alla candela `t` (si usano le candele successive).
+
+    status: "pending" (ordine BUY ancora valido e non eseguito), "unfilled" (mai eseguito),
+    "open" (comprato, né SELL né STOP finora), "win" (SELL), "loss" (STOP), "timeout"
+    (chiusa dopo `horizon` candele al prezzo di chiusura).
+    Se nella stessa candela si toccano STOP e SELL, si considera persa (stima prudente)."""
+    n = len(c)
+    fill = next((j for j in range(t + 1, min(t + 1 + fill_bars, n)) if lo[j] <= buy), None)
+    if fill is None:
+        return {"status": "pending" if t + fill_bars > n - 1 else "unfilled"}
+    entry = min(buy, o[fill])
+    end = fill + horizon - 1
+    out = {"fill_bar": fill, "entry": float(entry)}
+    for k in range(fill, min(end, n - 1) + 1):
+        if lo[k] <= stop:
+            out.update(status="loss", exit_bar=k, exit_price=float(min(stop, o[k]) if k > fill else stop))
+            break
+        if k > fill and h[k] >= target:
+            out.update(status="win", exit_bar=k, exit_price=float(max(target, o[k])))
+            break
+    else:
+        if end >= n:
+            out.update(status="open", exit_bar=n - 1, exit_price=float(c[n - 1]))
+        else:
+            out.update(status="timeout", exit_bar=end, exit_price=float(c[end]))
+    last = out["exit_bar"]
+    out["ret_pct"] = (out["exit_price"] / entry - 1) * 100
+    out["mfe_pct"] = (max(h[fill + 1:last + 1], default=entry) / entry - 1) * 100  # massimo guadagno toccato
+    out["mae_pct"] = (min(lo[fill:last + 1]) / entry - 1) * 100                   # massima perdita toccata
+    return out
+
+
 def backtest_plan(df: pd.DataFrame, horizon: int = 20, threshold: float = 20) -> dict:
     """Applica il piano a tutti i segnali d'acquisto passati della serie.
 
     Segnale = il punteggio supera `threshold`. Si piazza un ordine BUY (valido
     PLAN_FILL_BARS candele); se eseguito, l'operazione finisce al primo tra SELL
-    (vinta), STOP (persa) o dopo `horizon` candele (chiusa al prezzo di quel momento).
-    Se nella stessa candela si toccano STOP e SELL, si considera persa (stima prudente)."""
+    (vinta), STOP (persa) o dopo `horizon` candele (vedi `simulate_trade`)."""
     d = add_indicators(df).reset_index(drop=True)
     sc = score_series(df).to_numpy()
     o, h, lo, c, a = (d[k].to_numpy() for k in ("open", "high", "low", "close", "atr"))
@@ -247,32 +280,22 @@ def backtest_plan(df: pd.DataFrame, horizon: int = 20, threshold: float = 20) ->
         signals += 1
         buy = c[t] - PLAN_ENTRY_ATR * a[t]
         stop, target = buy - PLAN_STOP_ATR * a[t], buy + PLAN_TARGET_ATR * a[t]
-        fill = next((j for j in range(t + 1, min(t + 1 + PLAN_FILL_BARS, n)) if lo[j] <= buy), None)
-        if fill is None:
+        res = simulate_trade(o, h, lo, c, t, buy, stop, target, horizon)
+        if res["status"] == "unfilled":
             t += 1
             continue
-        entry = min(buy, o[fill])
-        end = fill + horizon - 1
-        if end >= n:  # operazione ancora aperta: non si conta
+        if res["status"] in ("pending", "open"):  # operazione ancora aperta a fine dati: non si conta
             break
-        outcome, exit_price, exit_bar = None, c[end], end
-        for k in range(fill, end + 1):
-            if lo[k] <= stop:
-                outcome, exit_price, exit_bar = "loss", min(stop, o[k]) if k > fill else stop, k
-                break
-            if k > fill and h[k] >= target:
-                outcome, exit_price, exit_bar = "win", max(target, o[k]), k
-                break
-        if outcome == "win":
+        if res["status"] == "win":
             wins += 1
-        elif outcome == "loss":
+        elif res["status"] == "loss":
             losses += 1
         else:
             timeouts += 1
-        returns.append((exit_price / entry - 1) * 100)
-        bars.append(exit_bar - fill + 1)
-        busy_until = exit_bar
-        t = exit_bar + 1
+        returns.append(res["ret_pct"])
+        bars.append(res["exit_bar"] - res["fill_bar"] + 1)
+        busy_until = res["exit_bar"]
+        t = res["exit_bar"] + 1
     trades = wins + losses + timeouts
     return {
         "bt_signals": signals, "bt_trades": trades, "bt_wins": wins, "bt_losses": losses, "bt_timeouts": timeouts,

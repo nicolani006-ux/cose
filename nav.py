@@ -19,3 +19,9 @@ def settings_page() -> st.Page:
     import settings_page as sp
 
     return st.Page(sp.main, title="Impostazioni & Bot", icon="⚙️", url_path="impostazioni")
+
+
+def test_page() -> st.Page:
+    import test_page as tp
+
+    return st.Page(tp.main, title="Test previsioni", icon="🧪", url_path="test")

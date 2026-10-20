@@ -25,6 +25,32 @@ App desktop (Streamlit + finestra nativa) con due sezioni:
 Usa solo dati pubblici: **non servono chiavi API** e l'app non fa operazioni di trading.
 > ⚠️ I segnali sono indicativi e non costituiscono consiglio finanziario.
 
+## 🧪 Test delle previsioni (prezzi reali)
+
+Per verificare se le previsioni funzionano davvero, ad ogni controllo orario il bot:
+
+1. registra ogni crypto con segnale d'acquisto (Binance, USDT, prime 30 per volume, timeframe 1h):
+   probabilità ipotizzata, prezzo BUY e SELL, margine ipotizzato;
+2. la segue sulle candele reali successive con le stesse regole della statistica storica
+   (ordine BUY valido 5 candele → chiusura al SELL, allo STOP o dopo 48 ore);
+3. aggiorna il file **`RadarUltimate\report\test_previsioni.xlsx`**.
+
+| Foglio | Contenuto |
+|---|---|
+| **Previsioni** | A crypto · B probabilità di rialzo ipotizzata · C prezzo BUY → SELL ipotizzato · D margine ipotizzato · E guadagno effettivo; poi esito, date, STOP, prezzo d'uscita, durata, guadagno netto commissioni (0,1% + 0,1%), massimo guadagno e massima perdita toccati, variazione del prezzo dopo 48 ore |
+| **Statistiche** | ordini eseguiti, successo reale contro probabilità ipotizzata, Brier score, margine ipotizzato contro guadagno reale, risultato con 100 € per operazione, profit factor, drawdown, miglior/peggior operazione, durata media… (ognuna con la spiegazione) |
+| **Per crypto** | risultati di ogni coin |
+| **Calibrazione** | per fasce di probabilità: quante volte la previsione si è avverata davvero |
+| **Andamento** | risultato cumulato operazione dopo operazione, con grafico |
+
+La **probabilità ipotizzata** è la percentuale storica con cui il piano di quella coin ha raggiunto il SELL
+prima dello STOP, avvicinata alla media generale quando i casi storici sono pochi (così 2 su 2 non diventa 100%).
+
+Si vede nella pagina **🧪 Test previsioni** dell'app (con il pulsante per scaricare l'Excel); dal telefono
+il comando `/test` del bot manda il riepilogo e il file. Quando un'operazione del test si chiude arriva un avviso.
+Si può disattivare o cambiare exchange/timeframe in `config.json` (`test_previsioni`, `test_exchange`,
+`test_timeframe`, `test_coins`).
+
 ## 📈 Azioni & Istituzioni
 
 Per ogni titolo della watchlist (55 grandi aziende USA, modificabile) calcola un **punteggio da -100 a +100**
@@ -114,6 +140,7 @@ Comandi (oppure i pulsanti che compaiono sotto la chat):
 | `/avvisi` | ultimi avvisi |
 | `/controlla` | esegue subito il controllo completo |
 | `/crypto` | migliori criptovalute ora (Binance, 1h) |
+| `/test` | risultati del test delle previsioni + file Excel |
 | `/watchlist`, `/aggiungi TSLA AMD`, `/rimuovi TSLA` | gestione della watchlist |
 | `/stato` | stato del bot e delle fonti |
 
@@ -174,6 +201,7 @@ streamlit run app.py
 |---|---|
 | `app.py`, `nav.py` | Menu dell'app: Crypto / Azioni / Impostazioni |
 | `settings_page.py` | Pagina Impostazioni & Bot |
+| `previsioni.py`, `test_page.py` | Test delle previsioni sui prezzi reali e relativa pagina |
 | `bot.py` | Bot Telegram + controllo orario |
 | `trend_crypto.py` | Sezione Crypto |
 | `stock_radar.py` | Sezione Azioni & Istituzioni |

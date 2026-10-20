@@ -22,6 +22,9 @@ class FakeAPI:
     def set_commands(self):
         pass
 
+    def send_document(self, chat_id, path, caption=""):
+        self.sent.append((chat_id, f"[file {path.name}]"))
+
 
 def msg(text, chat=42, uid=1):
     return {"update_id": uid, "message": {"text": text, "chat": {"id": chat, "first_name": "Nico"}}}
@@ -167,3 +170,33 @@ def test_run_forever_does_hourly_check_and_stops(bot, monkeypatch):
     assert not t.is_alive()
     assert checks == [True]  # controllo orario con invio degli avvisi
     assert "Watchlist" in bot.api.sent[0][1]
+
+
+def test_test_command_sends_excel(bot):
+    import previsioni as pv
+
+    pv.JOURNAL_FILE.unlink(missing_ok=True)
+    bot.handle_update(msg("/test"))
+    assert "nessuna previsione" in last(bot)
+    pv.save_journal([{"id": "x", "symbol": "SOL/USDT", "exchange": "binance", "timeframe": "1h", "horizon": 48,
+                      "created": "2026-10-21T10:00:00+00:00", "signal_ts": 0, "price": 100.0, "score": 50.0,
+                      "signal": "s", "buy": 99.5, "sell": 102.5, "stop": 98.0, "probability": 0.4,
+                      "hist_trades": 3, "expected_margin_pct": 3.0, "status": "pending"}])
+    pv.EXCEL_FILE.unlink(missing_ok=True)
+    bot.handle_update(msg("🧪 Test"))
+    assert bot.api.sent[-2][1] == "[file test_previsioni.xlsx]" and "1 previsioni" in last(bot)
+    pv.JOURNAL_FILE.unlink(missing_ok=True)
+
+
+def test_hourly_check_runs_forward_test(bot, monkeypatch):
+    import previsioni as pv
+
+    monkeypatch.setattr(tb, "run_once", lambda cfg, notify: {"snapshot": bot.snap, "alerts": [], "pushed": [],
+                                                             "status": []})
+    sent = []
+    monkeypatch.setattr(tb, "notify_all", lambda cfg, title, text, short: sent.append(text))
+    closed = {"symbol": "SOL/USDT", "status": "win", "ret_pct": 3.0, "expected_margin_pct": 3.0, "probability": 0.5}
+    monkeypatch.setattr(pv, "run", lambda cfg: {"new": [], "closed": [closed], "stats": {"total": 1, "first": "x",
+                        "pending": 0, "open": 0, "unfilled": 0, "closed": 0}})
+    bot.hourly_check()
+    assert sent and sent[0].startswith("✅ SOL/USDT: SELL raggiunto")

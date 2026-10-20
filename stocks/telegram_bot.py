@@ -22,7 +22,7 @@ from stocks import background, sources
 from stocks.analysis import macro_tone, score_stocks
 from stocks.config import ANALYST_FIRMS, DATA_DIR, REPORT_DIR, load_config, save_config, ticker_info
 from stocks.monitor import Snapshot, collect, load_snapshot, run_once
-from stocks.notify import split_message
+from stocks.notify import notify_all, split_message
 
 log = logging.getLogger("radar.bot")
 BOT_STATE = DATA_DIR / "bot_stato.json"
@@ -39,6 +39,7 @@ COMMANDS = [
     ("avvisi", "Ultimi avvisi"),
     ("controlla", "Esegui subito il controllo completo"),
     ("crypto", "Migliori criptovalute ora"),
+    ("test", "Risultati del test delle previsioni + file Excel"),
     ("watchlist", "Titoli seguiti"),
     ("aggiungi", "Aggiungi titoli, es. /aggiungi TSLA AMD"),
     ("rimuovi", "Togli titoli, es. /rimuovi TSLA"),
@@ -49,7 +50,7 @@ BUTTONS = {
     "🏆 Compra": "compra", "📉 Evita": "evita", "📊 Classifica": "classifica",
     "🏛️ Fed": "fed", "🏦 Banche": "banche", "🏢 Fondi": "fondi",
     "📰 Notizie": "notizie", "🔔 Avvisi": "avvisi", "▶️ Controlla": "controlla",
-    "🪙 Crypto": "crypto", "ℹ️ Aiuto": "aiuto",
+    "🪙 Crypto": "crypto", "🧪 Test": "test", "ℹ️ Aiuto": "aiuto",
 }
 KEYBOARD = [list(BUTTONS)[i:i + 3] for i in range(0, len(BUTTONS), 3)]
 DISCLAIMER = "ℹ️ Indicazioni automatiche, non consulenza finanziaria."
@@ -85,6 +86,14 @@ class TelegramAPI:
             if keyboard and i == len(parts) - 1:
                 params["reply_markup"] = {"keyboard": KEYBOARD, "resize_keyboard": True, "is_persistent": True}
             self.call("sendMessage", **params)
+
+    def send_document(self, chat_id, path, caption: str = "") -> None:
+        with open(path, "rb") as f:
+            r = self.s.post(self.base + "sendDocument", data={"chat_id": chat_id, "caption": caption[:1000]},
+                            files={"document": (path.name, f)}, timeout=60)
+        data = r.json()
+        if not data.get("ok"):
+            raise TelegramError(data.get("description", f"HTTP {r.status_code}"))
 
     def set_commands(self) -> None:
         self.call("setMyCommands", commands=[{"command": c, "description": d} for c, d in COMMANDS])
@@ -371,6 +380,38 @@ class RadarBot:
             lines.append(f"• {r.symbol} {r.score:+.0f} {r.signal}")
         return "\n".join(lines + ["", DISCLAIMER])
 
+    def cmd_test(self, arg, chat_id):
+        import previsioni
+
+        journal = previsioni.load_journal()
+        text = previsioni.summary_text(previsioni.compute_stats(journal))
+        if journal:
+            if not previsioni.EXCEL_FILE.exists():
+                previsioni.write_excel(journal)
+            self.api.send_document(chat_id, previsioni.EXCEL_FILE, "🧪 Test delle previsioni")
+        else:
+            text += "\nLe previsioni vengono registrate ad ogni controllo orario."
+        return text
+
+    def run_forward_test(self) -> None:
+        """Passo orario del test delle previsioni crypto; avvisa quando un'operazione si chiude."""
+        cfg = self.cfg
+        if not cfg.get("test_previsioni", True):
+            return
+        try:
+            import previsioni
+        except ImportError:  # installazione senza la parte crypto
+            return
+        try:
+            res = previsioni.run(cfg)
+            log.info("Test previsioni: %d nuove, %d chiuse", len(res["new"]), len(res["closed"]))
+            if res["closed"]:
+                text = "\n".join([*(previsioni.closed_text(e) for e in res["closed"]), "",
+                                  previsioni.summary_text(res["stats"])])
+                notify_all(cfg, "🧪 Test previsioni", text, previsioni.closed_text(res["closed"][0]))
+        except Exception:  # noqa: BLE001
+            log.exception("Test previsioni fallito")
+
     def cmd_watchlist(self, arg, chat_id):
         wl = self.cfg["watchlist"]
         return f"👀 Watchlist ({len(wl)} titoli):\n" + ", ".join(wl)
@@ -415,6 +456,10 @@ class RadarBot:
             log.info("Controllo: %d novità, %d inviate %s", len(res["alerts"]), len(res["pushed"]), res["status"])
         except Exception:  # noqa: BLE001
             log.exception("Controllo orario fallito")
+        try:
+            self.run_forward_test()
+        except Exception:  # noqa: BLE001
+            log.exception("Test previsioni fallito")
         finally:
             self.state["last_check"] = time.time()
             self._save_state()

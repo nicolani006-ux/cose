@@ -129,6 +129,12 @@ DEFAULT_CONFIG: dict = {
     "invia_riepilogo_sempre": False,
     "controlla_13f": True,
     "controlla_8k": True,
+    # Test delle previsioni crypto sui prezzi reali (file report/test_previsioni.xlsx)
+    "test_previsioni": True,
+    "test_exchange": "binance",
+    "test_quote": "USDT",
+    "test_timeframe": "1h",
+    "test_coins": 30,
 }
 
 

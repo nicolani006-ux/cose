@@ -126,7 +126,8 @@ def scan(exchange_id: str, quote: str, n: int, timeframe: str) -> tuple[pd.DataF
             df = ohlcv_to_df(ex.fetch_ohlcv(row["symbol"], timeframe=timeframe, limit=OHLCV_LIMIT))
             if len(df) < 60:
                 return None, None
-            return {**row, **analyze(df), **plan_and_stats(df, horizon=HORIZON_BARS.get(timeframe, 48))}, None
+            return {**row, **analyze(df), **plan_and_stats(df, horizon=HORIZON_BARS.get(timeframe, 48)),
+                    "last_candle": int(df["time"].iloc[-1].value // 1_000_000)}, None
         except Exception as e:  # noqa: BLE001 - un simbolo non deve bloccare la scansione
             return None, f"{row['symbol']}: {e}"
 
