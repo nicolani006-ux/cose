@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import altair as alt
+import numpy as np
 import pandas as pd
 
+LEVEL_COLORS = {"BUY": "#2ecc71", "SELL": "#00bcd4", "STOP": "#ff5252"}
 
-def price_chart(df: pd.DataFrame, symbol: str) -> alt.Chart:
+
+def price_chart(df: pd.DataFrame, symbol: str, levels: dict | None = None) -> alt.Chart:
+    """Candele con medie mobili; `levels` (es. {"BUY": 10, "SELL": 12, "STOP": 9}) aggiunge linee orizzontali."""
     df = df.tail(150)
     base = alt.Chart(df).encode(x=alt.X("time:T", title=None))
     color = alt.condition("datum.open <= datum.close", alt.value("#26a69a"), alt.value("#ef5350"))
@@ -32,7 +36,16 @@ def price_chart(df: pd.DataFrame, symbol: str) -> alt.Chart:
             legend=alt.Legend(orient="top", title=None),
         ),
     )
-    return alt.layer(wick, body, lines).resolve_scale(color="independent").properties(height=420)
+    layers = [wick, body, lines]
+    lv = pd.DataFrame([{"livello": k, "prezzo": float(v), "label": f"{k} {fmt_price(float(v))}"}
+                       for k, v in (levels or {}).items() if v is not None and np.isfinite(v) and v > 0])
+    if not lv.empty:
+        lcolor = alt.Color("livello:N", scale=alt.Scale(domain=list(LEVEL_COLORS), range=list(LEVEL_COLORS.values())),
+                           legend=None)
+        layers.append(alt.Chart(lv).mark_rule(strokeDash=[6, 4], strokeWidth=1.5).encode(y="prezzo:Q", color=lcolor))
+        layers.append(alt.Chart(lv).mark_text(align="left", dx=4, dy=-7, fontWeight="bold").encode(
+            y="prezzo:Q", x=alt.value(0), text="label:N", color=lcolor))
+    return alt.layer(*layers).resolve_scale(color="independent").properties(height=420)
 
 
 def rsi_chart(df: pd.DataFrame) -> alt.Chart:

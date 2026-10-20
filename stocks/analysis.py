@@ -7,7 +7,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from indicators import analyze
+from indicators import analyze, plan_and_stats
 from stocks.config import ticker_info
 
 # --------------------------------------------------------------------------- #
@@ -192,6 +192,7 @@ def rating_points(r, now: pd.Timestamp) -> tuple[float, str]:
 # Punteggio complessivo
 # --------------------------------------------------------------------------- #
 
+STOCK_HORIZON_DAYS = 20  # durata massima di un'operazione nella statistica storica (giorni di borsa)
 WEIGHTS = {"tecnico": 0.35, "analisti": 0.30, "notizie": 0.15, "istituzioni": 0.10, "macro": 0.10}
 NEGATIVE_8K_ITEMS = {"1.03", "2.06", "3.01", "4.01", "4.02"}
 
@@ -285,6 +286,7 @@ def score_stocks(snap, watchlist: list[str]) -> pd.DataFrame:
             "chg_1m": (close.iloc[-1] / close.iloc[-22] - 1) * 100 if len(close) > 22 else np.nan,
             **{f"s_{k}": round(v, 1) for k, v in parts.items()},
             "score": round(score, 1), "signal": signal_label(score),
+            **plan_and_stats(df, horizon=STOCK_HORIZON_DAYS),
             "reasons": " · ".join(reasons), "spark": close.iloc[-60:].round(4).tolist(),
         })
     out = pd.DataFrame(rows)

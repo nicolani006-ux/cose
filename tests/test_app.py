@@ -67,7 +67,8 @@ def test_excel_export_roundtrip(monkeypatch):
     data = tc.to_excel(radar)
     back = pd.read_excel(__import__("io").BytesIO(data))
     assert len(back) == len(radar) == 6  # USDC e BTCUP esclusi
-    assert "Punteggio" in back.columns
+    assert {"Punteggio", "Prezzo BUY", "Prezzo SELL", "Stop loss", "Successo storico %"} <= set(back.columns)
+    assert (radar["stop"] < radar["buy"]).all() and (radar["buy"] < radar["sell"]).all()
 
 
 def test_full_app_runs_without_errors(monkeypatch):

@@ -136,6 +136,7 @@ def test_monitor_first_run_then_only_new_alerts(clean_state):
     r1 = monitor.run_once(CFG, snap=fk.snapshot())
     assert r1["first_run"] and r1["pushed"] == []
     assert "Monitoraggio attivato" in sent[0] and "Migliori candidati" in sent[0]
+    assert "🎯 BUY" in sent[0]
 
     snap2 = fk.snapshot(
         rating_rows=[("NVDA", NOW, "Goldman Sachs", "Goldman Sachs", 1.0, "up", "Neutral", "Buy", 220.0, 180.0)],

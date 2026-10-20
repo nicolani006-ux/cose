@@ -12,8 +12,9 @@ import streamlit as st
 
 import nav
 from charts import macd_chart, price_chart, rsi_chart
-from indicators import add_indicators
-from stocks.analysis import macro_tone, score_stocks
+from indicators import PLAN_HELP, add_indicators, overall_stats
+from stocks.analysis import STOCK_HORIZON_DAYS, macro_tone, score_stocks
+from ui_common import plan_metrics
 from stocks.config import REPORT_DIR, load_config, ticker_info
 from stocks.monitor import collect, load_snapshot, run_once, save_snapshot
 
@@ -65,6 +66,11 @@ def header(snap, ranking: pd.DataFrame) -> None:
     c3.metric("Titoli da evitare", int((ranking["score"] <= -20).sum()), border=True)
     top = ranking.iloc[0]
     c4.metric("Miglior candidato", f"{top['ticker']}", delta=f"{top['score']:+.0f}", border=True)
+    stats = overall_stats(ranking)
+    if stats:
+        st.caption(f"📊 Statistica storica (2 anni) dei segnali BUY su tutta la watchlist: **{stats['win_rate']:.0f}%** "
+                   f"ha raggiunto il SELL prima dello STOP ({stats['trades']} operazioni simulate, rendimento medio "
+                   f"{stats['avg_ret']:+.2f}% per operazione, massimo {STOCK_HORIZON_DAYS} giorni).", help=PLAN_HELP)
 
 
 def tab_ranking(ranking: pd.DataFrame) -> None:
@@ -76,6 +82,7 @@ def tab_ranking(ranking: pd.DataFrame) -> None:
     st.dataframe(
         view, hide_index=True, width="stretch", height=min(38 * (len(view) + 1), 900),
         column_order=["ticker", "name", "sector", "price", "chg_1d", "chg_1m", "spark", "score", "signal",
+                      "buy", "sell", "stop", "bt_win_rate", "bt_trades",
                       "s_tecnico", "s_analisti", "s_notizie", "s_istituzioni", "s_macro", "reasons"],
         column_config={
             "ticker": st.column_config.TextColumn("Titolo", pinned=True),
@@ -92,6 +99,11 @@ def tab_ranking(ranking: pd.DataFrame) -> None:
             "s_istituzioni": st.column_config.NumberColumn("13F", format="%+.0f"),
             "s_macro": st.column_config.NumberColumn("Fed", format="%+.0f"),
             "reasons": st.column_config.TextColumn("Motivi", width="large"),
+            "buy": st.column_config.NumberColumn("BUY $", format="%.2f", help=PLAN_HELP),
+            "sell": st.column_config.NumberColumn("SELL $", format="%.2f", help=PLAN_HELP),
+            "stop": st.column_config.NumberColumn("STOP $", format="%.2f", help=PLAN_HELP),
+            "bt_win_rate": st.column_config.NumberColumn("Successo storico", format="%.0f%%", help=PLAN_HELP),
+            "bt_trades": st.column_config.NumberColumn("Segnali", format="%d"),
         },
     )
     st.caption("Punteggio = 35% analisi tecnica + 30% giudizi delle banche d'affari + 15% notizie "
@@ -109,8 +121,9 @@ def tab_detail(snap, ranking: pd.DataFrame) -> None:
     c2.metric("Punteggio", f"{row['score']:+.0f}", delta=row["signal"], delta_color="off", delta_arrow="off")
     c3.metric("Settore", row["sector"])
     st.info("**Motivi:** " + row["reasons"])
+    plan_metrics(row, unit="giorni", fmt=lambda v: f"{v:,.2f} $")
     df = add_indicators(snap.prices[t])
-    st.altair_chart(price_chart(df, t), width="stretch")
+    st.altair_chart(price_chart(df, t, {"BUY": row["buy"], "SELL": row["sell"], "STOP": row["stop"]}), width="stretch")
     a, b = st.columns(2)
     a.altair_chart(rsi_chart(df), width="stretch")
     b.altair_chart(macd_chart(df), width="stretch")

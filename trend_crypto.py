@@ -18,8 +18,10 @@ import requests
 import streamlit as st
 
 from charts import fmt_price, macd_chart, price_chart, rsi_chart  # noqa: F401
+from ui_common import plan_metrics
 from indicators import (  # noqa: F401
-    _crossed, add_indicators, analyze, atr, ema, macd, rsi, signal_label,
+    HORIZON_BARS, PLAN_HELP, _crossed, add_indicators, analyze, atr, ema, macd, overall_stats, plan_and_stats, rsi,
+    signal_label, stat_text,
 )
 
 APP_TITLE = "Crypto Radar Ultimate"
@@ -51,6 +53,7 @@ NEWS_FEEDS = {
 }
 
 HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (CryptoRadarUltimate)"}
+OHLCV_LIMIT = 1000  # candele scaricate: servono anche per la statistica storica dei segnali
 
 
 def is_tradeable_base(base: str) -> bool:
@@ -106,7 +109,7 @@ def top_symbols(exchange_id: str, quote: str, n: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_ohlcv(exchange_id: str, symbol: str, timeframe: str, limit: int = 300) -> pd.DataFrame:
+def fetch_ohlcv(exchange_id: str, symbol: str, timeframe: str, limit: int = OHLCV_LIMIT) -> pd.DataFrame:
     ex = get_exchange(exchange_id)
     return ohlcv_to_df(ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit))
 
@@ -120,10 +123,10 @@ def scan(exchange_id: str, quote: str, n: int, timeframe: str) -> tuple[pd.DataF
 
     def work(row):
         try:
-            df = ohlcv_to_df(ex.fetch_ohlcv(row["symbol"], timeframe=timeframe, limit=300))
+            df = ohlcv_to_df(ex.fetch_ohlcv(row["symbol"], timeframe=timeframe, limit=OHLCV_LIMIT))
             if len(df) < 60:
                 return None, None
-            return {**row, **analyze(df)}, None
+            return {**row, **analyze(df), **plan_and_stats(df, horizon=HORIZON_BARS.get(timeframe, 48))}, None
         except Exception as e:  # noqa: BLE001 - un simbolo non deve bloccare la scansione
             return None, f"{row['symbol']}: {e}"
 
@@ -184,7 +187,9 @@ def fetch_news(limit_per_feed: int = 10) -> pd.DataFrame:
 EXPORT_COLUMNS = {
     "symbol": "Coppia", "price": "Prezzo", "change_24h": "Var. 24h %", "volume_24h": "Volume 24h",
     "rsi": "RSI", "trend_ema": "Trend EMA", "vol_ratio": "Volume rel.", "volatility": "Volatilità ATR %",
-    "score": "Punteggio", "signal": "Segnale", "alerts": "Allerte",
+    "score": "Punteggio", "signal": "Segnale", "buy": "Prezzo BUY", "sell": "Prezzo SELL", "stop": "Stop loss",
+    "bt_win_rate": "Successo storico %", "bt_trades": "Segnali storici", "bt_avg_ret": "Rendimento medio storico %",
+    "alerts": "Allerte",
 }
 
 
@@ -257,6 +262,11 @@ def header_metrics(radar: pd.DataFrame) -> None:
     c2.metric("Coin in rialzo", bull, border=True)
     c3.metric("Coin in ribasso", bear, border=True)
     c4.metric("Sentiment medio", f"{radar['score'].mean():+.0f}", border=True)
+    stats = overall_stats(radar)
+    if stats:
+        st.caption(f"📊 Statistica storica dei segnali BUY su tutte le coin: **{stats['win_rate']:.0f}%** "
+                   f"ha raggiunto il SELL prima dello STOP ({stats['trades']} operazioni simulate, "
+                   f"rendimento medio {stats['avg_ret']:+.2f}%).", help=PLAN_HELP)
 
 
 def tab_radar(radar: pd.DataFrame, cfg: dict) -> None:
@@ -270,8 +280,8 @@ def tab_radar(radar: pd.DataFrame, cfg: dict) -> None:
         width="stretch",
         height=min(38 * (len(view) + 1), 900),
         column_order=[
-            "symbol", "price", "change_24h", "spark", "score", "signal", "rsi",
-            "trend_ema", "vol_ratio", "volatility", "volume_24h", "alerts",
+            "symbol", "price", "change_24h", "spark", "score", "signal", "buy", "sell", "stop",
+            "bt_win_rate", "bt_trades", "rsi", "trend_ema", "vol_ratio", "volatility", "volume_24h", "alerts",
         ],
         column_config={
             "symbol": st.column_config.TextColumn("Coppia", pinned=True),
@@ -288,6 +298,11 @@ def tab_radar(radar: pd.DataFrame, cfg: dict) -> None:
             "volatility": st.column_config.NumberColumn("Volatilità", format="%.2f%%"),
             "volume_24h": st.column_config.NumberColumn("Volume 24h", format="compact"),
             "alerts": "Allerte",
+            "buy": st.column_config.NumberColumn("BUY", format="%.6g", help=PLAN_HELP),
+            "sell": st.column_config.NumberColumn("SELL", format="%.6g", help=PLAN_HELP),
+            "stop": st.column_config.NumberColumn("STOP", format="%.6g", help=PLAN_HELP),
+            "bt_win_rate": st.column_config.NumberColumn("Successo storico", format="%.0f%%", help=PLAN_HELP),
+            "bt_trades": st.column_config.NumberColumn("Segnali", format="%d"),
         },
     )
 
@@ -304,7 +319,9 @@ def tab_analysis(radar: pd.DataFrame, cfg: dict) -> None:
     c4.metric("Volatilità (ATR)", f"{row['volatility']:.2f}%")
     if row["alerts"]:
         st.info("🔔 " + row["alerts"])
-    st.altair_chart(price_chart(df, symbol), width="stretch")
+    plan_metrics(row)
+    st.altair_chart(price_chart(df, symbol, {"BUY": row["buy"], "SELL": row["sell"], "STOP": row["stop"]}),
+                    width="stretch")
     col_a, col_b = st.columns(2)
     col_a.altair_chart(rsi_chart(df), width="stretch")
     col_b.altair_chart(macd_chart(df), width="stretch")

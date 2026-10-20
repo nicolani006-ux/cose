@@ -9,6 +9,7 @@ App desktop (Streamlit + finestra nativa) con due sezioni:
 
 ## 🪙 Crypto
 
+- **Prezzi BUY / SELL / STOP** con statistica storica di successo per ogni coin (vedi sotto)
 - **Radar**: scarica le coin con più volume dall'exchange scelto (Binance, Bybit, OKX,
   KuCoin, Gate.io, MEXC, Kraken) ed assegna a ciascuna un **punteggio di trend da -100 a +100**
   basato su EMA 20/50/200, MACD, RSI, volume relativo e breakout dei massimi/minimi.
@@ -36,6 +37,26 @@ e indica i **migliori candidati all'acquisto** e quelli da evitare, spiegando se
 | 15% | Sentiment delle notizie che citano il titolo; comunicazioni SEC 8-K negative | Google News, SEC EDGAR |
 | 10% | Azioni comprate/vendute da **BlackRock, Vanguard, State Street** (confronto ultimi due 13F) | SEC EDGAR |
 | 10% | Tono della **Federal Reserve** (tassi giù/su) e suo effetto sul settore | federalreserve.gov |
+
+### 🎯 Prezzi BUY / SELL / STOP e statistica storica
+
+Per ogni titolo e ogni crypto l'app calcola un piano operativo basato sulla volatilità (ATR = movimento
+medio di una candela/giornata):
+
+| Livello | Calcolo | Significato |
+|---|---|---|
+| 🟢 **BUY** | prezzo attuale − 0,5 ATR | ordine d'acquisto (limite) su un piccolo ritracciamento, valido 5 candele |
+| 🎯 **SELL** | BUY + 3 ATR | obiettivo dove vendere in guadagno |
+| 🛑 **STOP** | BUY − 1,5 ATR | vendi se il prezzo scende qui (perdita limitata) |
+
+Rendimento/rischio = 2:1. **Successo storico**: l'app riapplica lo stesso piano a tutti i segnali d'acquisto
+passati di quel titolo (2 anni di dati per le azioni, ~1000 candele per le crypto) e misura in che percentuale
+il prezzo ha toccato il SELL prima dello STOP, con il rendimento medio per operazione (massimo 20 giorni per
+le azioni). Con il rapporto 2:1 basta superare circa il 33% per essere in guadagno nel tempo. Con meno di 5
+operazioni storiche il dato viene segnalato come poco affidabile.
+
+I livelli sono nella classifica, nell'analisi di ogni titolo (con le linee sul grafico), negli avvisi e nel
+bot (`/compra`, `/titolo NVDA`).
 
 ### Fonti controllate
 

@@ -17,6 +17,7 @@ from logging.handlers import RotatingFileHandler
 import pandas as pd
 import requests
 
+from indicators import stat_text
 from stocks import background, sources
 from stocks.analysis import macro_tone, score_stocks
 from stocks.config import ANALYST_FIRMS, DATA_DIR, REPORT_DIR, load_config, save_config, ticker_info
@@ -87,6 +88,16 @@ class TelegramAPI:
 
     def set_commands(self) -> None:
         self.call("setMyCommands", commands=[{"command": c, "description": d} for c, d in COMMANDS])
+
+
+def plan_line(r) -> str:
+    """🎯 BUY / SELL / STOP con la percentuale di successo storica."""
+    if pd.isna(r.get("buy")):
+        return "🎯 Livelli non disponibili (storico insufficiente)"
+    wr = r.get("bt_win_rate")
+    hist = f" · storico {wr:.0f}% su {int(r['bt_trades'])}" if wr is not None and not pd.isna(wr) else ""
+    return (f"🎯 BUY {r['buy']:,.2f}$ · SELL {r['sell']:,.2f}$ (+{r['upside_pct']:.1f}%) · "
+            f"STOP {r['stop']:,.2f}$ (-{r['risk_pct']:.1f}%){hist}")
 
 
 def _pct(v) -> str:
@@ -190,10 +201,12 @@ class RadarBot:
         lines.append("\nPuoi anche scrivere solo il ticker (es. NVDA) o usare i pulsanti qui sotto.")
         return "\n".join(lines)
 
-    def _rank_lines(self, rows: pd.DataFrame, reasons: bool) -> list[str]:
+    def _rank_lines(self, rows: pd.DataFrame, reasons: bool, plan: bool = False) -> list[str]:
         out = []
         for i, r in enumerate(rows.itertuples(), 1):
             line = f"{i}. {r.ticker} ({r.name}) {r.score:+.0f} {r.signal} · {r.price:,.2f}$ ({_pct(r.chg_1d)} oggi)"
+            if plan:
+                line += "\n   " + plan_line(r._asdict())
             if reasons:
                 line += "\n   " + r.reasons[:300]
             out.append(line)
@@ -206,7 +219,8 @@ class RadarBot:
         buy = rk[rk["score"] >= 20].head(int(arg) if arg.isdigit() else 5)
         if buy.empty:
             return "🏆 Nessun titolo ha ora un segnale di acquisto chiaro.\n\n" + DISCLAIMER
-        return "\n".join(["🏆 Migliori candidati all'acquisto ora:", *self._rank_lines(buy, True), "", DISCLAIMER])
+        return "\n".join(["🏆 Migliori candidati all'acquisto ora:", *self._rank_lines(buy, True, plan=True), "",
+                          DISCLAIMER])
 
     def cmd_evita(self, arg, chat_id):
         rk = self.ranking(chat_id)
@@ -244,6 +258,10 @@ class RadarBot:
             f"Punteggio {r['score']:+.0f} → {r['signal']}",
             f"(tecnico {r['s_tecnico']:+.0f} · banche {r['s_analisti']:+.0f} · notizie {r['s_notizie']:+.0f} · "
             f"13F {r['s_istituzioni']:+.0f} · Fed {r['s_macro']:+.0f})",
+            "", plan_line(r),
+            f"📊 Storico: {stat_text(r, 'giorni')}",
+            *(["⚠️ Il segnale attuale non è d'acquisto: lo STOP serve se hai già il titolo, il BUY per un "
+               "ingresso futuro."] if r["score"] < 20 else []),
             "", "Motivi:", *[f"• {x}" for x in r["reasons"].split(" · ")],
         ]
         if not ratings.empty and t in set(ratings["ticker"]):

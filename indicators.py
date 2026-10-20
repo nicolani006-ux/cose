@@ -154,3 +154,167 @@ def signal_label(score: float) -> str:
     if score <= -20:
         return "🔴 Ribasso"
     return "⚪ Neutrale"
+
+
+# --------------------------------------------------------------------------- #
+# Punteggio candela per candela, piano BUY / SELL / STOP e statistica storica
+# --------------------------------------------------------------------------- #
+
+def score_series(df: pd.DataFrame) -> pd.Series:
+    """Lo stesso punteggio di `analyze`, calcolato per ogni candela usando solo i dati
+    disponibili fino a quella candela (serve per la statistica storica)."""
+    d = add_indicators(df).reset_index(drop=True)
+    n = len(d)
+    close = d["close"]
+    s = np.where(close > d["ema20"], 15.0, -15.0)
+    s += np.where(d["ema20"] > d["ema50"], 15.0, -15.0)
+    s += np.where(np.arange(n) >= 199, np.where(d["ema50"] > d["ema200"], 20.0, -20.0), 0.0)
+    s += np.where(d["macd_hist"] > 0, 10.0, -10.0)
+
+    sign = np.sign((d["macd"] - d["macd_signal"]).to_numpy())
+    cross = np.zeros(n)
+    decided = np.zeros(n, dtype=bool)
+    for k in (2, 1, 0):  # come _crossed: vince l'incrocio più vecchio nelle ultime 3 candele
+        prev = np.roll(sign, k + 1)
+        cur = np.roll(sign, k)
+        up = (prev <= 0) & (cur > 0)
+        dn = (prev >= 0) & (cur < 0)
+        valid = np.arange(n) >= 3
+        new_up = up & ~decided & valid
+        new_dn = dn & ~decided & ~new_up & valid
+        cross[new_up], cross[new_dn] = 1, -1
+        decided |= new_up | new_dn
+    s += 10 * cross
+
+    r = d["rsi"].fillna(50).to_numpy()
+    s += np.select([(r >= 55) & (r < 70), r >= 70, (r > 30) & (r <= 45), r <= 30], [15, 5, -15, -5], 0)
+
+    vol_avg = d["volume"].rolling(20, min_periods=1).mean().shift(1)
+    ratio = np.where(vol_avg > 0, d["volume"] / vol_avg, 1.0)
+    s = np.where(ratio >= 1.5, s * 1.2, s)
+
+    hi20 = d["high"].rolling(20, min_periods=1).max().shift(1)
+    lo20 = d["low"].rolling(20, min_periods=1).min().shift(1)
+    s += np.where(close > hi20, 10, np.where(close < lo20, -10, 0))
+    return pd.Series(np.clip(s, -100, 100), index=df.index)
+
+
+# Distanze in multipli di ATR (volatilità media) e durata massima di un'operazione, per timeframe.
+PLAN_ENTRY_ATR = 0.5     # BUY: piccolo ritracciamento sotto il prezzo attuale
+PLAN_STOP_ATR = 1.5      # STOP: 1,5 ATR sotto il BUY
+PLAN_TARGET_ATR = 3.0    # SELL: 3 ATR sopra il BUY  (rendimento/rischio = 2)
+PLAN_FILL_BARS = 5       # quante candele resta valido l'ordine di acquisto
+HORIZON_BARS = {"15m": 96, "1h": 48, "4h": 30, "1d": 20}
+
+
+def trade_plan(df: pd.DataFrame) -> dict:
+    """Prezzi suggeriti: BUY (acquisto con ordine limite), SELL (obiettivo), STOP (vendi se scende sotto)."""
+    d = add_indicators(df)
+    last = d.iloc[-1]
+    close, a = float(last["close"]), float(last["atr"]) if pd.notna(last["atr"]) else np.nan
+    if not np.isfinite(a) or a <= 0:
+        return {"buy": np.nan, "sell": np.nan, "stop": np.nan, "upside_pct": np.nan, "risk_pct": np.nan,
+                "support": np.nan, "resistance": np.nan}
+    buy = close - PLAN_ENTRY_ATR * a
+    stop = buy - PLAN_STOP_ATR * a
+    sell = buy + PLAN_TARGET_ATR * a
+    recent = d.tail(60)
+    return {
+        "buy": buy, "sell": sell, "stop": max(stop, 0.0),
+        "upside_pct": (sell / buy - 1) * 100, "risk_pct": (1 - stop / buy) * 100,
+        "support": float(recent["low"].min()), "resistance": float(recent["high"].max()),
+    }
+
+
+def backtest_plan(df: pd.DataFrame, horizon: int = 20, threshold: float = 20) -> dict:
+    """Applica il piano a tutti i segnali d'acquisto passati della serie.
+
+    Segnale = il punteggio supera `threshold`. Si piazza un ordine BUY (valido
+    PLAN_FILL_BARS candele); se eseguito, l'operazione finisce al primo tra SELL
+    (vinta), STOP (persa) o dopo `horizon` candele (chiusa al prezzo di quel momento).
+    Se nella stessa candela si toccano STOP e SELL, si considera persa (stima prudente)."""
+    d = add_indicators(df).reset_index(drop=True)
+    sc = score_series(df).to_numpy()
+    o, h, lo, c, a = (d[k].to_numpy() for k in ("open", "high", "low", "close", "atr"))
+    n = len(d)
+    wins = losses = timeouts = signals = 0
+    returns, bars = [], []
+    t, busy_until = 60, -1
+    while t < n - 1:
+        if not (sc[t] >= threshold and sc[t - 1] < threshold) or t <= busy_until or not np.isfinite(a[t]):
+            t += 1
+            continue
+        signals += 1
+        buy = c[t] - PLAN_ENTRY_ATR * a[t]
+        stop, target = buy - PLAN_STOP_ATR * a[t], buy + PLAN_TARGET_ATR * a[t]
+        fill = next((j for j in range(t + 1, min(t + 1 + PLAN_FILL_BARS, n)) if lo[j] <= buy), None)
+        if fill is None:
+            t += 1
+            continue
+        entry = min(buy, o[fill])
+        end = fill + horizon - 1
+        if end >= n:  # operazione ancora aperta: non si conta
+            break
+        outcome, exit_price, exit_bar = None, c[end], end
+        for k in range(fill, end + 1):
+            if lo[k] <= stop:
+                outcome, exit_price, exit_bar = "loss", min(stop, o[k]) if k > fill else stop, k
+                break
+            if k > fill and h[k] >= target:
+                outcome, exit_price, exit_bar = "win", max(target, o[k]), k
+                break
+        if outcome == "win":
+            wins += 1
+        elif outcome == "loss":
+            losses += 1
+        else:
+            timeouts += 1
+        returns.append((exit_price / entry - 1) * 100)
+        bars.append(exit_bar - fill + 1)
+        busy_until = exit_bar
+        t = exit_bar + 1
+    trades = wins + losses + timeouts
+    return {
+        "bt_signals": signals, "bt_trades": trades, "bt_wins": wins, "bt_losses": losses, "bt_timeouts": timeouts,
+        "bt_win_rate": wins / trades * 100 if trades else np.nan,
+        "bt_fill_rate": trades / signals * 100 if signals else np.nan,
+        "bt_avg_ret": float(np.mean(returns)) if returns else np.nan,
+        "bt_avg_bars": float(np.mean(bars)) if bars else np.nan,
+    }
+
+
+def plan_and_stats(df: pd.DataFrame, horizon: int = 20) -> dict:
+    return {**trade_plan(df), **backtest_plan(df, horizon=horizon)}
+
+
+def stat_text(row, unit: str = "candele") -> str:
+    """Frase breve sulla statistica storica di un titolo."""
+    n = row.get("bt_trades", 0) or 0
+    if not n:
+        return "nessun segnale storico sufficiente"
+    txt = (f"{row['bt_win_rate']:.0f}% dei {int(n)} acquisti passati ha raggiunto il SELL prima dello STOP "
+           f"(rendimento medio {row['bt_avg_ret']:+.1f}% in {row['bt_avg_bars']:.0f} {unit})")
+    fill = row.get("bt_fill_rate")
+    if fill is not None and not pd.isna(fill) and fill < 100:
+        txt += f"; l'ordine BUY è stato eseguito nel {fill:.0f}% dei segnali"
+    if n < 5:
+        txt += " ⚠️ campione piccolo, poco affidabile"
+    return txt
+
+
+def overall_stats(rows: pd.DataFrame) -> dict | None:
+    """Statistica complessiva su tutti i titoli/coin: % di segnali arrivati al SELL e rendimento medio."""
+    if rows.empty or "bt_trades" not in rows:
+        return None
+    trades = rows["bt_trades"].fillna(0)
+    total = int(trades.sum())
+    if not total:
+        return None
+    return {"trades": total, "win_rate": rows["bt_wins"].fillna(0).sum() / total * 100,
+            "avg_ret": float((rows["bt_avg_ret"].fillna(0) * trades).sum() / total)}
+
+
+PLAN_HELP = ("BUY = ordine d'acquisto (limite) mezzo ATR sotto il prezzo attuale, valido 5 candele · SELL = obiettivo 3 ATR sopra il BUY · "
+             "STOP = vendi se scende 1,5 ATR sotto il BUY (rendimento/rischio 2:1). ATR = movimento medio di una candela. "
+             "Successo storico = % dei segnali d'acquisto passati di questo titolo in cui, con questi livelli, "
+             "il prezzo ha toccato il SELL prima dello STOP.")

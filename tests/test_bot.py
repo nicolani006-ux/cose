@@ -71,12 +71,14 @@ def test_buy_command_lists_best_candidates(bot):
     text = last(bot)
     assert text.startswith("🏆 Migliori candidati") and "1. NVDA (Nvidia)" in text
     assert "Goldman Sachs: upgrade a Buy" in text and "non consulenza" in text
+    assert "🎯 BUY" in text and "SELL" in text and "STOP" in text
 
 
 def test_ticker_detail_and_unknown_ticker(bot, monkeypatch):
     bot.handle_update(msg("NVDA"))
     text = last(bot)
     assert "📈 NVDA – Nvidia (Tecnologia)" in text and "🏦 Giudizi recenti" in text and "Goldman" in text
+    assert "🎯 BUY" in text and "📊 Storico:" in text
     monkeypatch.setattr(tb.sources, "fetch_prices", lambda t: {})
     bot.handle_update(msg("/titolo ZZZZ"))
     assert "Nessun dato per ZZZZ" in last(bot)

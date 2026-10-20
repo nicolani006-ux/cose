@@ -80,7 +80,7 @@ def fetch_feed(url: str, group: str, kind: str, session=None) -> list[dict]:
 # Prezzi e giudizi degli analisti (Yahoo Finance tramite yfinance)
 # --------------------------------------------------------------------------- #
 
-def fetch_prices(tickers: list[str], period: str = "1y") -> dict[str, pd.DataFrame]:
+def fetch_prices(tickers: list[str], period: str = "2y") -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
     def one(t):
