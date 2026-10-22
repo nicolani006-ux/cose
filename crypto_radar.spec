@@ -11,7 +11,7 @@ binaries = []
 # (e le loro dipendenze) vanno dichiarati esplicitamente.
 hiddenimports = [
     "nav", "trend_crypto", "stock_radar", "settings_page", "test_page", "previsioni", "indicators", "charts",
-    "ui_common",
+    "ui_common", "crypto_core", "excel_previsioni",
     "stocks", "stocks.config", "stocks.sources", "stocks.analysis", "stocks.monitor",
     "stocks.notify", "stocks.background", "stocks.telegram_bot",
     "ccxt", "feedparser", "openpyxl", "altair", "requests", "yfinance",

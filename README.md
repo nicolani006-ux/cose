@@ -51,6 +51,16 @@ il comando `/test` del bot manda il riepilogo e il file. Quando un'operazione de
 Si può disattivare o cambiare exchange/timeframe in `config.json` (`test_previsioni`, `test_exchange`,
 `test_timeframe`, `test_coins`).
 
+**Solo l'Excel, senza app** (servono solo `ccxt`, `pandas`, `numpy`, `openpyxl`):
+
+- doppio clic su `excel_previsioni.bat`, oppure `python excel_previsioni.py` (`--loop 60` per ripeterlo ogni ora,
+  `--solo-excel` per rigenerare il file senza internet, `--cartella DIR` per scegliere dove salvare i dati);
+- con l'eseguibile: `"Crypto Radar Ultimate.exe" --excel`;
+- in Claude Code: la skill **`/excel-previsioni`** (in `.claude/skills/excel-previsioni`) fa solo questo
+  aggiornamento e consegna il file. In una sessione cloud va consentito il dominio `api.binance.com`
+  nelle impostazioni di rete dell'ambiente; lo storico viene salvato nella cartella `dati_previsioni`
+  del repository.
+
 ## 📈 Azioni & Istituzioni
 
 Per ogni titolo della watchlist (55 grandi aziende USA, modificabile) calcola un **punteggio da -100 a +100**
@@ -202,6 +212,8 @@ streamlit run app.py
 | `app.py`, `nav.py` | Menu dell'app: Crypto / Azioni / Impostazioni |
 | `settings_page.py` | Pagina Impostazioni & Bot |
 | `previsioni.py`, `test_page.py` | Test delle previsioni sui prezzi reali e relativa pagina |
+| `excel_previsioni.py`, `.claude/skills/excel-previsioni` | Solo test + Excel, da riga di comando o come skill di Claude Code |
+| `crypto_core.py` | Dati crypto senza interfaccia (exchange, scansione) |
 | `bot.py` | Bot Telegram + controllo orario |
 | `trend_crypto.py` | Sezione Crypto |
 | `stock_radar.py` | Sezione Azioni & Istituzioni |

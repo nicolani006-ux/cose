@@ -5,6 +5,7 @@ o l'.app (macOS). Da sorgente:  python launcher.py
 
 Senza finestra:  --monitor  un controllo delle azioni con invio degli avvisi
                  --bot      bot Telegram + controllo ogni ora (avviato dalle Impostazioni)
+                 --excel    solo test delle previsioni crypto + file Excel
 """
 
 import multiprocessing
@@ -35,6 +36,10 @@ if __name__ == "__main__":
         from stocks.monitor import main as monitor_main
 
         sys.exit(monitor_main([a for a in sys.argv[1:] if a != "--monitor"]))
+    if "--excel" in sys.argv:  # solo test delle previsioni + file Excel
+        from excel_previsioni import main as excel_main
+
+        sys.exit(excel_main([a for a in sys.argv[1:] if a != "--excel"]))
     if "--bot" in sys.argv:  # bot Telegram + controllo orario in background
         from stocks.telegram_bot import main as bot_main
 

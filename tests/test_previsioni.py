@@ -145,3 +145,23 @@ def test_test_page_renders():
     assert not at.exception, at.exception
     assert at.metric[0].value == "5" and at.metric[2].value == "50%"
     assert len(at.dataframe[0].value) == 5
+
+
+def test_excel_cli(monkeypatch, capsys):
+    import excel_previsioni
+
+    assert excel_previsioni.main(["--solo-excel"]) == 0
+    assert pv.EXCEL_FILE.exists() and "nessuna previsione" in capsys.readouterr().out
+
+    monkeypatch.setattr(pv, "run", lambda cfg: {"new": [], "closed": [], "stats": {"total": 0},
+                                                "error": "NetworkError: offline"})
+    assert excel_previsioni.main([]) == 2
+    assert "Exchange non raggiungibile" in capsys.readouterr().out
+
+
+def test_run_survives_unreachable_exchange():
+    def down(*a):
+        raise ConnectionError("offline")
+
+    res = pv.run({}, scan=down, fetch=down)
+    assert res["error"].startswith("ConnectionError") and pv.EXCEL_FILE.exists()

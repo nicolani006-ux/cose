@@ -406,24 +406,29 @@ def write_excel(journal: list[dict], path=EXCEL_FILE) -> None:
 # --------------------------------------------------------------------------- #
 
 def _default_scan(exchange: str, quote: str, n: int, timeframe: str) -> pd.DataFrame:
-    import trend_crypto
+    import crypto_core
 
-    return trend_crypto.scan(exchange, quote, n, timeframe)[0]
+    return crypto_core.scan(exchange, quote, n, timeframe)[0]
 
 
 def _default_fetch(exchange: str, symbol: str, timeframe: str, since_ms: int) -> list:
-    import trend_crypto
+    import crypto_core
 
-    return trend_crypto.get_exchange(exchange).fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=1000)
+    return crypto_core.get_exchange(exchange).fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=1000)
 
 
 def run(cfg: dict, scan=_default_scan, fetch=_default_fetch) -> dict:
-    """Un passo del test: aggiorna le previsioni aperte, registra le nuove, salva il file Excel."""
+    """Un passo del test: aggiorna le previsioni aperte, registra le nuove, salva il file Excel.
+    Se l'exchange non risponde, il file viene comunque riscritto con i dati già salvati."""
     ex, tf = cfg.get("test_exchange", "binance"), cfg.get("test_timeframe", "1h")
     journal = load_journal()
     closed = update_entries(journal, fetch)
-    radar = scan(ex, cfg.get("test_quote", "USDT"), int(cfg.get("test_coins", 30)), tf)
-    new = record_signals(journal, radar, ex, tf)
+    new, error = [], None
+    try:
+        radar = scan(ex, cfg.get("test_quote", "USDT"), int(cfg.get("test_coins", 30)), tf)
+        new = record_signals(journal, radar, ex, tf)
+    except Exception as e:  # noqa: BLE001 - exchange non raggiungibile
+        error = f"{type(e).__name__}: {e}"[:300]
     save_journal(journal)
     write_excel(journal)
-    return {"new": new, "closed": closed, "stats": compute_stats(journal)}
+    return {"new": new, "closed": closed, "stats": compute_stats(journal), "error": error}

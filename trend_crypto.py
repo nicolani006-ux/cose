@@ -8,17 +8,18 @@ from __future__ import annotations
 
 import io
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-import ccxt
+import ccxt  # noqa: F401 - usato dai test per sostituire gli exchange
 import feedparser
 import pandas as pd
 import requests
 import streamlit as st
 
+import crypto_core as core
 from charts import fmt_price, macd_chart, price_chart, rsi_chart  # noqa: F401
 from ui_common import plan_metrics
+from crypto_core import LEVERAGED_SUFFIXES, OHLCV_LIMIT, STABLECOINS, is_tradeable_base, ohlcv_to_df  # noqa: F401
 from indicators import (  # noqa: F401
     HORIZON_BARS, PLAN_HELP, _crossed, add_indicators, analyze, atr, ema, macd, overall_stats, plan_and_stats, rsi,
     signal_label, stat_text,
@@ -38,13 +39,6 @@ EXCHANGES = {
 
 TIMEFRAMES = {"15 minuti": "15m", "1 ora": "1h", "4 ore": "4h", "1 giorno": "1d"}
 
-STABLECOINS = {
-    "USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD", "USDP", "USDD", "PYUSD",
-    "EUR", "EURT", "EURC", "EURI", "GBP", "USD", "USDE", "USD1", "RLUSD", "UST",
-    "XUSD", "BFUSD", "AEUR", "WBTC", "WETH", "PAXG", "XAUT",
-}
-LEVERAGED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR", "3L", "3S", "5L", "5S", "2L", "2S")
-
 NEWS_FEEDS = {
     "Cointelegraph": "https://cointelegraph.com/rss",
     "CoinDesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
@@ -53,91 +47,16 @@ NEWS_FEEDS = {
 }
 
 HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (CryptoRadarUltimate)"}
-OHLCV_LIMIT = 1000  # candele scaricate: servono anche per la statistica storica dei segnali
-
-
-def is_tradeable_base(base: str) -> bool:
-    if base in STABLECOINS:
-        return False
-    return not any(base.endswith(s) and len(base) > len(s) for s in LEVERAGED_SUFFIXES)
 
 
 # --------------------------------------------------------------------------- #
-# Dati
+# Dati (logica in crypto_core.py, qui solo la cache di Streamlit)
 # --------------------------------------------------------------------------- #
 
-@st.cache_resource(show_spinner=False)
-def get_exchange(exchange_id: str):
-    ex = getattr(ccxt, exchange_id)({"enableRateLimit": False, "timeout": 15000})
-    ex.load_markets()
-    return ex
-
-
-def ohlcv_to_df(rows: list) -> pd.DataFrame:
-    df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"])
-    df["time"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
-    return df.drop(columns="ts").dropna()
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def top_symbols(exchange_id: str, quote: str, n: int) -> pd.DataFrame:
-    ex = get_exchange(exchange_id)
-    tickers = ex.fetch_tickers()
-    rows = []
-    for sym, t in tickers.items():
-        m = ex.markets.get(sym)
-        if not m or not m.get("spot") or not m.get("active", True) or m.get("quote") != quote:
-            continue
-        if not is_tradeable_base(m["base"]):
-            continue
-        qv = t.get("quoteVolume")
-        if qv is None and t.get("baseVolume") and t.get("last"):
-            qv = t["baseVolume"] * t["last"]
-        if not qv or not t.get("last"):
-            continue
-        rows.append({
-            "symbol": sym,
-            "base": m["base"],
-            "last": t["last"],
-            "change_24h": t.get("percentage"),
-            "volume_24h": qv,
-        })
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    return df.sort_values("volume_24h", ascending=False).head(n).reset_index(drop=True)
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_ohlcv(exchange_id: str, symbol: str, timeframe: str, limit: int = OHLCV_LIMIT) -> pd.DataFrame:
-    ex = get_exchange(exchange_id)
-    return ohlcv_to_df(ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit))
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def scan(exchange_id: str, quote: str, n: int, timeframe: str) -> tuple[pd.DataFrame, list[str]]:
-    tops = top_symbols(exchange_id, quote, n)
-    if tops.empty:
-        return tops, []
-    ex = get_exchange(exchange_id)
-
-    def work(row):
-        try:
-            df = ohlcv_to_df(ex.fetch_ohlcv(row["symbol"], timeframe=timeframe, limit=OHLCV_LIMIT))
-            if len(df) < 60:
-                return None, None
-            return {**row, **analyze(df), **plan_and_stats(df, horizon=HORIZON_BARS.get(timeframe, 48)),
-                    "last_candle": int(df["time"].iloc[-1].value // 1_000_000)}, None
-        except Exception as e:  # noqa: BLE001 - un simbolo non deve bloccare la scansione
-            return None, f"{row['symbol']}: {e}"
-
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        outcomes = list(pool.map(work, tops.to_dict("records")))
-    errors = [err for _, err in outcomes if err]
-    out = pd.DataFrame([res for res, _ in outcomes if res])
-    if not out.empty:
-        out = out.sort_values("score", ascending=False).reset_index(drop=True)
-    return out, errors
+get_exchange = st.cache_resource(show_spinner=False)(core.get_exchange)
+top_symbols = st.cache_data(ttl=60, show_spinner=False)(core.top_symbols)
+fetch_ohlcv = st.cache_data(ttl=60, show_spinner=False)(core.fetch_ohlcv)
+scan = st.cache_data(ttl=60, show_spinner=False)(core.scan)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
