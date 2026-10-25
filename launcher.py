@@ -41,9 +41,17 @@ if __name__ == "__main__":
 
         sys.exit(excel_main([a for a in sys.argv[1:] if a != "--excel"]))
     if "--bot" in sys.argv:  # bot Telegram + controllo orario in background
-        from stocks.telegram_bot import main as bot_main
+        try:
+            from stocks.telegram_bot import main as bot_main
 
-        sys.exit(bot_main([a for a in sys.argv[1:] if a != "--bot"]))
+            sys.exit(bot_main([a for a in sys.argv[1:] if a != "--bot"]))
+        except Exception:  # registra anche gli errori di avvio (senza finestra non si vedrebbero)
+            import traceback
+
+            from stocks.background import log_crash
+
+            log_crash(traceback.format_exc())
+            sys.exit(1)
 
     from streamlit_desktop_app import start_desktop_app
 

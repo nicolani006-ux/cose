@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import streamlit as st
 
@@ -42,17 +43,28 @@ def section_bot(cfg: dict) -> None:
     else:
         st.error("Token non valido o Telegram non raggiungibile.")
 
+    running, starting = background.is_running(), background.starting()
     st.markdown("**2. Avvia il bot** – resta attivo in background anche ad app chiusa: risponde ai comandi "
                 "e fa il controllo **ogni ora**.")
-    a, b, c = st.columns([1, 1, 2])
-    if a.button("▶️ Avvia bot", disabled=running, type="primary"):
+    a, b, _ = st.columns([1, 1, 2])
+    if a.button("▶️ Avvia bot", disabled=running or starting, type="primary"):
         background.start()
-        st.toast("Bot in avvio…")
-        st.rerun()
+        with st.spinner("Avvio del bot… (la prima volta può richiedere fino a un minuto)"):
+            ok = background.wait_until_running()
+        if ok:
+            st.toast("✅ Bot avviato")
+            st.rerun()
+        st.error("Il bot non è partito. Ultime righe del registro (mandale a chi ti aiuta):")
+        st.code(background.log_tail(25) or "(registro vuoto: il programma non è riuscito nemmeno a partire)",
+                language=None)
     if b.button("⏹️ Ferma bot", disabled=not running):
         background.request_stop()
-        st.toast("Il bot si fermerà entro 30 secondi.")
-    c.write("Stato: " + ("🟢 **in esecuzione**" if running else "🔴 **fermo**"))
+        with st.spinner("Arresto del bot… (fino a 30 secondi)"):
+            end = time.time() + 45
+            while background.is_running() and time.time() < end:
+                time.sleep(1)
+        st.rerun()
+    live_status(running, starting, bool(cfg["telegram_chat_id"]))
     if os.name == "nt":
         auto = st.checkbox("Avvia il bot automaticamente all'accesso a Windows", background.autostart_enabled())
         if auto != background.autostart_enabled():
@@ -60,6 +72,9 @@ def section_bot(cfg: dict) -> None:
             st.toast("Avvio automatico " + ("attivato" if auto else "disattivato"))
     else:
         st.caption(f"Avvio manuale: `{background.command_line()}`")
+    with st.expander("📄 Registro del bot (bot.log)"):
+        st.code(background.log_tail(40) or "(vuoto)", language=None)
+        st.caption(f"File: `{background.LOG_FILE}`")
 
     st.markdown("**3. Collega il tuo account** – apri il bot e premi **Avvia** (o scrivi `/start`): "
                 "da quel momento risponde solo a te.")
@@ -76,10 +91,52 @@ def section_bot(cfg: dict) -> None:
             save_config(cfg)
             st.rerun()
     elif running:
-        st.info("In attesa del tuo /start sul bot…")
-        st.button("🔄 Aggiorna stato")
+        st.info("In attesa del tuo /start sul bot… questa pagina si aggiorna da sola.")
+    elif starting:
+        st.info("Attendi che il bot finisca di avviarsi (passo 2).")
     else:
-        st.warning("Avvia prima il bot (passo 2), poi premi Avvia su Telegram.")
+        st.warning("Il bot è fermo: avvialo al passo 2, poi premi Avvia su Telegram.")
+        if st.button("🔎 Ho già scritto al bot: collega la chat senza avviarlo",
+                     help="Legge l'ultimo messaggio ricevuto dal bot e salva la tua chat."):
+            try:
+                ids = notify.find_chat_ids(cfg["telegram_token"])
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Errore: {e}")
+                ids = None
+            if ids:
+                cfg["telegram_chat_id"] = ids[-1].split(" ")[0]
+                save_config(cfg)
+                st.rerun()
+            elif ids is not None:
+                st.warning("Nessun messaggio trovato: scrivi qualcosa al bot su Telegram e riprova.")
+
+
+def _hm(iso: str | None) -> str:
+    return iso[11:16] + (f" del {iso[8:10]}/{iso[5:7]}" if iso[:10] != time.strftime("%Y-%m-%d") else "") if iso else "mai"
+
+
+@st.fragment(run_every=3)
+def live_status(was_running: bool, was_starting: bool, was_linked: bool) -> None:
+    """Stato del bot aggiornato ogni 3 secondi; ricarica la pagina quando cambia."""
+    running, starting = background.is_running(), background.starting()
+    linked = bool(load_config().get("telegram_chat_id"))
+    if (running, starting, linked) != (was_running, was_starting, was_linked):
+        st.rerun(scope="app")
+    info = background.read_status()
+    if running:
+        tg = {"ok": "✅ collegato", "errore": "⚠️ errore", "token mancante": "⚠️ token mancante"}.get(
+            info.get("telegram"), "in collegamento…")
+        st.success(f"🟢 **Bot in esecuzione** dalle {_hm(info.get('avviato'))} · Telegram: {tg} · "
+                   f"ultimo contatto {_hm(info.get('ultimo_contatto'))} · "
+                   f"ultimo controllo orario {_hm(info.get('ultimo_controllo'))}")
+        if info.get("telegram") == "errore" and info.get("ultimo_errore"):
+            st.warning(f"Ultimo errore: {info['ultimo_errore']}")
+    elif starting:
+        st.info("🟡 **Bot in avvio…** può richiedere fino a un minuto.")
+    else:
+        st.error("🔴 **Bot fermo**")
+        if info.get("stato") == "fermo per errore" and info.get("ultimo_errore"):
+            st.caption(f"Si è fermato per un errore: {info['ultimo_errore']}")
 
 
 def section_alerts(cfg: dict) -> None:

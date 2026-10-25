@@ -21,10 +21,12 @@ from stocks.config import DATA_DIR, REPORT_DIR
 
 JOURNAL_FILE = DATA_DIR / "previsioni.json"
 EXCEL_FILE = REPORT_DIR / "test_previsioni.xlsx"
+RUN_LOG = REPORT_DIR / "registro_test.txt"  # una riga per ogni aggiornamento (bot, app o excel_previsioni)
 FEE_PCT = 0.1      # commissione per lato (Binance spot standard)
 STAKE_EUR = 100    # importo simulato per ogni operazione
 PRIOR_K = 5        # peso della media generale nella probabilità (pochi dati storici = stima prudente)
 BUY_THRESHOLD = 20
+MIN_MARGIN_PCT = 0.5  # sotto questo margine il guadagno sparirebbe nelle commissioni: non si registra
 
 FINAL = {"unfilled", "win", "loss", "timeout"}
 CLOSED = {"win", "loss", "timeout"}
@@ -73,7 +75,7 @@ def record_signals(journal: list[dict], radar: pd.DataFrame, exchange: str, time
     g_rate = g["win_rate"] / 100 if g else 1 / 3
     new = []
     for r in radar[radar["score"] >= BUY_THRESHOLD].itertuples():
-        if r.symbol in active or pd.isna(r.buy) or not r.buy > 0:
+        if r.symbol in active or pd.isna(r.buy) or not r.buy > 0 or (r.sell / r.buy - 1) * 100 < MIN_MARGIN_PCT:
             continue
         eid = f"{exchange}|{r.symbol}|{timeframe}|{int(r.last_candle)}"
         if eid in known:
@@ -431,4 +433,23 @@ def run(cfg: dict, scan=_default_scan, fetch=_default_fetch) -> dict:
         error = f"{type(e).__name__}: {e}"[:300]
     save_journal(journal)
     write_excel(journal)
-    return {"new": new, "closed": closed, "stats": compute_stats(journal), "error": error}
+    stats = compute_stats(journal)
+    log_run(f"{len(new)} nuove previsioni, {len(closed)} chiuse, totale {stats['total']}"
+            + (f" | ERRORE: {error}" if error else " | ok"))
+    return {"new": new, "closed": closed, "stats": stats, "error": error}
+
+
+def log_run(text: str) -> None:
+    try:
+        RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with RUN_LOG.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M} | {text}\n")
+    except OSError:
+        pass
+
+
+def run_log_tail(lines: int = 20) -> str:
+    try:
+        return "\n".join(RUN_LOG.read_text(encoding="utf-8").splitlines()[-lines:])
+    except OSError:
+        return ""

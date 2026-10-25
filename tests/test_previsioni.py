@@ -15,6 +15,7 @@ def radar(last_candle=T0):
                      "sell": 102.5, "stop": 98.0, "bt_wins": 4, "bt_trades": 10, "bt_win_rate": 40.0,
                      "bt_avg_ret": 1.0, "last_candle": last_candle})
     rows.append({**rows[0], "symbol": "WEAK/USDT", "score": 5.0})  # nessun segnale d'acquisto
+    rows.append({**rows[0], "symbol": "USDX/USDT", "buy": 1.0, "sell": 1.002, "stop": 0.999})  # margine troppo basso
     return pd.DataFrame(rows)
 
 

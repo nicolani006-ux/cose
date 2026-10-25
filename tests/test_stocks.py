@@ -344,3 +344,56 @@ def test_snapshot_roundtrip_on_disk():
     monitor.save_snapshot(snap)
     assert monitor.load_snapshot(60, snap.watchlist).fetched_at == snap.fetched_at
     assert monitor.load_snapshot(60, ["ALTRO"]) is None  # watchlist cambiata
+
+
+def test_background_status_starting_and_crash_log(monkeypatch):
+    import subprocess
+    import sys
+
+    background.STATUS_FILE.unlink(missing_ok=True)
+    background.write_status(stato="in esecuzione", telegram="ok")
+    background.write_status(ultimo_errore=None)
+    st_ = background.read_status()
+    assert st_["stato"] == "in esecuzione" and st_["telegram"] == "ok" and "aggiornato" in st_
+
+    calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: calls.append((cmd, kw)) or type("P", (), {"pid": 7})())
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert background.start() == 7
+    cmd, kw = calls[0]
+    assert cmd == [sys.executable, "--bot"] and kw["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    assert background.starting()  # avvio richiesto, bot non ancora pronto
+    background.STARTING_FILE.write_text("0")  # richiesta troppo vecchia
+    assert not background.starting()
+
+    background.LOG_FILE.unlink(missing_ok=True)
+    background.log_crash("Traceback: ImportError boom")
+    assert "ERRORE AVVIO" in background.log_tail() and "boom" in background.log_tail()
+
+
+def test_settings_start_button_waits_and_reports_failure(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    from stocks.config import DEFAULT_CONFIG, save_config
+
+    save_config({**DEFAULT_CONFIG, "telegram_token": "123:ABC"})
+    background.LOG_FILE.write_text("2026-10-25 riga di prova\nTelegram: Unauthorized\n", encoding="utf-8")
+
+    def page():
+        import settings_page
+        from stocks import background as bg
+
+        bg.start = lambda: 1
+        bg.wait_until_running = lambda *a, **k: False  # il bot non parte
+        settings_page.bot_username = lambda token: "MioBot"
+        settings_page.main()
+
+    at = AppTest.from_function(page, default_timeout=30)
+    at.run()
+    assert not at.exception, at.exception
+    assert any("Bot fermo" in e.value for e in at.error)
+    next(b for b in at.button if "Avvia bot" in b.label).click().run()
+    assert not at.exception, at.exception
+    assert any("non è partito" in e.value for e in at.error)
+    assert any("Unauthorized" in c.value for c in at.code)
+    save_config(dict(DEFAULT_CONFIG))

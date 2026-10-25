@@ -60,6 +60,21 @@ def test_stablecoins_and_leveraged_tokens_filtered():
     assert not tc.is_tradeable_base("ETH3L")
 
 
+def test_scan_skips_pegged_coins(monkeypatch):
+    from fake_exchange import FakeExchange
+
+    class Pegged(FakeExchange):
+        def fetch_ohlcv(self, symbol, timeframe="1h", limit=300):
+            rows = super().fetch_ohlcv(symbol, timeframe, limit)
+            if symbol == "XRP/USDT":  # prezzo fermo a 1 come una stablecoin
+                return [[r[0], 1.0, 1.0001, 0.9999, 1.0, r[5]] for r in rows]
+            return rows
+
+    monkeypatch.setattr(tc.ccxt, "kraken", Pegged, raising=False)
+    radar, _ = tc.core.scan("kraken", "USDT", 10, "1h")
+    assert "XRP/USDT" not in set(radar["symbol"]) and len(radar) == 5
+
+
 def test_excel_export_roundtrip(monkeypatch):
     monkeypatch.setattr(tc.ccxt, "binance", FakeExchange, raising=False)
     radar, errors = tc.scan("binance", "USDT", 10, "1h")

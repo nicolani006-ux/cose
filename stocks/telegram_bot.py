@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import logging
 import re
 import threading
@@ -463,6 +464,7 @@ class RadarBot:
         finally:
             self.state["last_check"] = time.time()
             self._save_state()
+            background.write_status(ultimo_controllo=time.strftime("%Y-%m-%dT%H:%M:%S"))
             self._check_lock.release()
 
     def poll(self, timeout: int = 25) -> int:
@@ -494,6 +496,7 @@ class RadarBot:
             if due and not self._check_lock.locked():
                 threading.Thread(target=self.hourly_check, daemon=True).start()
             if not self.cfg.get("telegram_token"):
+                background.write_status(telegram="token mancante")
                 wait(30)  # senza Telegram: solo controllo orario con notifiche desktop
                 continue
             try:
@@ -505,9 +508,11 @@ class RadarBot:
                     self.api.set_commands()
                     commands_set = True
                 self.poll()
+                background.write_status(telegram="ok", ultimo_contatto=time.strftime("%Y-%m-%dT%H:%M:%S"))
                 backoff = 5
             except Exception as e:  # noqa: BLE001 - rete assente, token errato, altro bot attivo…
                 log.warning("Telegram: %s", e)
+                background.write_status(telegram="errore", ultimo_errore=f"Telegram: {e}"[:300])
                 wait(backoff)
                 backoff = min(backoff * 2, 300)
 
@@ -538,11 +543,24 @@ def main(argv: list[str] | None = None) -> int:
     lock = background.acquire_instance_lock()
     if lock is None:
         print("Il bot è già in esecuzione.")
+        log.info("Avvio ignorato: il bot è già in esecuzione")
         return 0
     background.clear_stop()
-    log.info("Bot avviato")
+    background.STARTING_FILE.unlink(missing_ok=True)
+    started = time.strftime("%Y-%m-%dT%H:%M:%S")
+    background.write_status(stato="in esecuzione", pid=os.getpid(), avviato=started, telegram=None,
+                            ultimo_contatto=None, ultimo_errore=None, ultimo_controllo=None)
+    log.info("Bot avviato (pid %s)", os.getpid())
     api = TelegramAPI(cfg["telegram_token"]) if cfg.get("telegram_token") else None
-    RadarBot(api).run_forever()
+    try:
+        RadarBot(api).run_forever()
+    except Exception as e:  # noqa: BLE001
+        log.exception("Il bot si è fermato per un errore")
+        background.write_status(stato="fermo per errore", ultimo_errore=f"{type(e).__name__}: {e}")
+        return 1
+    finally:
+        lock.close()
+    background.write_status(stato="fermo")
     log.info("Bot fermato")
     return 0
 

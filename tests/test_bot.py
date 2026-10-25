@@ -34,7 +34,7 @@ def msg(text, chat=42, uid=1):
 def bot(monkeypatch):
     tb.BOT_STATE.unlink(missing_ok=True)
     save_config({**DEFAULT_CONFIG, "telegram_token": "T", "telegram_chat_id": "42",
-                 "watchlist": ["NVDA", "PFE", "AAPL", "JPM"]})
+                 "watchlist": ["NVDA", "PFE", "AAPL", "JPM"], "test_previsioni": False})  # niente rete nei test
     b = tb.RadarBot(FakeAPI())
     b.snap = fk.snapshot(
         rating_rows=[("NVDA", NOW, "Goldman Sachs", "Goldman Sachs", 1.0, "up", "Neutral", "Buy", 220.0, 180.0)],
@@ -190,6 +190,8 @@ def test_test_command_sends_excel(bot):
 
 def test_hourly_check_runs_forward_test(bot, monkeypatch):
     import previsioni as pv
+
+    save_config({**load_config(), "test_previsioni": True})
 
     monkeypatch.setattr(tb, "run_once", lambda cfg, notify: {"snapshot": bot.snap, "alerts": [], "pushed": [],
                                                              "status": []})

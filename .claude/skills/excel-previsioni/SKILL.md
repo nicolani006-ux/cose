@@ -33,9 +33,10 @@ Lo script:
 3. riscrive `<cartella>/report/test_previsioni.xlsx` e stampa un riepilogo.
 
 Codici d'uscita: `0` tutto ok; `2` exchange non raggiungibile. Con `2` l'Excel viene comunque rigenerato
-con i dati già salvati, ma **non ci sono prezzi nuovi**: dillo chiaramente all'utente, nomina il dominio
-`api.binance.com` (in una sessione cloud va consentito nelle impostazioni di rete dell'ambiente) e
-non inventare né simulare risultati.
+con i dati già salvati, ma **non ci sono prezzi nuovi**: dillo chiaramente all'utente e non inventare né
+simulare risultati. I prezzi arrivano da `data-api.binance.vision` (server ufficiale di Binance per i dati
+pubblici, funziona anche dai server cloud negli USA) con ripiego su `api.binance.com` (bloccato negli USA):
+in una sessione cloud almeno `data-api.binance.vision` va consentito nelle impostazioni di rete dell'ambiente.
 
 Per rigenerare il file senza internet: `python excel_previsioni.py --solo-excel [--cartella ...]`.
 

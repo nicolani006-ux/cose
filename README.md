@@ -57,9 +57,14 @@ Si può disattivare o cambiare exchange/timeframe in `config.json` (`test_previs
   `--solo-excel` per rigenerare il file senza internet, `--cartella DIR` per scegliere dove salvare i dati);
 - con l'eseguibile: `"Crypto Radar Ultimate.exe" --excel`;
 - in Claude Code: la skill **`/excel-previsioni`** (in `.claude/skills/excel-previsioni`) fa solo questo
-  aggiornamento e consegna il file. In una sessione cloud va consentito il dominio `api.binance.com`
-  nelle impostazioni di rete dell'ambiente; lo storico viene salvato nella cartella `dati_previsioni`
-  del repository.
+  aggiornamento e consegna il file. In una sessione cloud va consentito il dominio `data-api.binance.vision`
+  (dati pubblici ufficiali di Binance, non bloccati negli USA come `api.binance.com`) nelle impostazioni di
+  rete dell'ambiente; lo storico viene salvato nella cartella `dati_previsioni` del repository.
+
+**Come vedere se il test sta girando**: pagina **🧪 Test previsioni** → "Ultimo aggiornamento del test" e
+"Registro degli aggiornamenti" (file `RadarUltimate\report\registro_test.txt`, una riga per ogni
+aggiornamento). `excel_previsioni.bat` apre una finestra nera che mostra ogni aggiornamento e il percorso del
+file; serve solo se hai scaricato il progetto e installato Python, con l'app basta il bot.
 
 ## 📈 Azioni & Istituzioni
 
@@ -130,8 +135,11 @@ Ogni messaggio termina con la classifica aggiornata dei **migliori candidati all
 Tutto si configura dalla pagina **⚙️ Impostazioni & Bot** (menu a sinistra), in 3 passi:
 
 1. **Crea il bot**: su Telegram scrivi `/newbot` a **@BotFather**, scegli un nome e incolla il token nell'app.
-2. **Avvia il bot**: premi *▶️ Avvia bot* (e spunta *Avvia automaticamente all'accesso a Windows*).
-   Il bot resta acceso in background anche ad app chiusa e fa il **controllo ogni ora**.
+2. **Avvia il bot**: premi *▶️ Avvia bot* e attendi (la prima volta può volerci fino a un minuto: compare
+   "🟢 Bot in esecuzione"); spunta *Avvia automaticamente all'accesso a Windows*. Il bot resta acceso in
+   background anche ad app chiusa e fa il **controllo ogni ora**. La pagina mostra lo stato del collegamento
+   con Telegram, l'ultimo errore e il registro `bot.log`; nel Task Manager il bot compare come un secondo
+   processo "Crypto Radar Ultimate".
 3. **Collega il tuo account**: premi *Apri @tuobot su Telegram* e poi **Avvia**. Da quel momento il bot
    risponde solo a te.
 

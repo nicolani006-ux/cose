@@ -29,6 +29,13 @@ def main() -> None:
     b.write("Bot: " + ("🟢 in esecuzione – il test avanza da solo ogni ora" if background.is_running()
                        else "🔴 fermo – avvialo da ⚙️ Impostazioni & Bot perché il test avanzi da solo"))
 
+    last = pv.run_log_tail(1)
+    st.caption("Ultimo aggiornamento del test: " + (last if last else "mai"))
+    with st.expander("📄 Registro degli aggiornamenti"):
+        st.code(pv.run_log_tail(30) or "(nessun aggiornamento ancora)", language=None)
+        st.caption(f"File: `{pv.RUN_LOG}` – una riga ogni volta che il bot, questa pagina o "
+                   "excel_previsioni aggiornano il test.")
+
     journal = pv.load_journal()
     s = pv.compute_stats(journal)
     if not journal:
