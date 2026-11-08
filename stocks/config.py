@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from pathlib import Path
+
+from stocks import secret
 
 DATA_DIR = Path(os.environ.get("RADAR_HOME", Path.home() / "RadarUltimate"))
 CONFIG_FILE = DATA_DIR / "config.json"
@@ -122,6 +125,7 @@ DEFAULT_CONFIG: dict = {
     "watchlist": list(UNIVERSE),
     "telegram_token": "",
     "telegram_chat_id": "",
+    "codice_collegamento": "",  # codice da mandare al bot con /start per diventarne il proprietario
     "notifiche_desktop": True,
     # La SEC richiede un User-Agent con nome ed email: https://www.sec.gov/os/accessing-edgar-data
     "sec_user_agent": "",
@@ -153,6 +157,7 @@ def load_config() -> dict:
         cfg.update(json.loads(CONFIG_FILE.read_text(encoding="utf-8")))
     except (OSError, ValueError):
         pass
+    cfg["telegram_token"] = secret.unprotect(cfg.get("telegram_token") or "")
     # Variabili d'ambiente (usate dal controllo su GitHub Actions) hanno la precedenza.
     for key, env in (("telegram_token", "RADAR_TELEGRAM_TOKEN"), ("telegram_chat_id", "RADAR_TELEGRAM_CHAT_ID"),
                      ("sec_user_agent", "RADAR_SEC_USER_AGENT")):
@@ -168,7 +173,20 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    data = {**cfg, "telegram_token": secret.protect(cfg.get("telegram_token") or "")}  # token cifrato su disco
+    tmp = CONFIG_FILE.with_suffix(".tmp")  # scrittura atomica: un arresto a metà non cancella le impostazioni
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(CONFIG_FILE)
+
+
+def pairing_code(cfg: dict | None = None) -> str:
+    """Codice di collegamento del bot (creato la prima volta). Il bot accetta come proprietario solo chi
+    gli manda /start con questo codice: senza, chiunque trovasse il bot per primo lo prenderebbe."""
+    cfg = cfg if cfg is not None else load_config()
+    if not cfg.get("codice_collegamento"):
+        cfg["codice_collegamento"] = secrets.token_hex(4).upper()
+        save_config(cfg)
+    return cfg["codice_collegamento"]
 
 
 def ticker_info(ticker: str) -> tuple[str, str, list[str], list[str]]:

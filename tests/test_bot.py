@@ -62,7 +62,13 @@ def test_first_start_registers_owner_then_private(monkeypatch):
     b = tb.RadarBot(FakeAPI())
     b.handle_update(msg("ciao", chat=7))
     assert "/start" in last(b) and load_config()["telegram_chat_id"] == ""
-    b.handle_update(msg("/start", chat=7))
+    b.handle_update(msg("/start", chat=7))  # senza codice di collegamento: non basta
+    assert load_config()["telegram_chat_id"] == "" and "codice" in last(b)
+    b.handle_update(msg("/start SBAGLIATO", chat=66))
+    assert load_config()["telegram_chat_id"] == ""
+    code = load_config()["codice_collegamento"]
+    assert len(code) == 8
+    b.handle_update(msg(f"/start {code.lower()}", chat=7))  # link t.me/bot?start=CODICE dall'app
     assert load_config()["telegram_chat_id"] == "7" and "risponde solo a te" in last(b)
     b.handle_update(msg("/compra", chat=99))
     assert b.api.sent[-1] == (99, "⛔ Questo è un bot privato.")

@@ -8,7 +8,8 @@ import time
 import streamlit as st
 
 from stocks import background, notify
-from stocks.config import DATA_DIR, UNIVERSE, load_config, save_config
+from stocks import secret
+from stocks.config import DATA_DIR, UNIVERSE, load_config, pairing_code, save_config
 from stocks.telegram_bot import TelegramAPI
 
 
@@ -76,10 +77,17 @@ def section_bot(cfg: dict) -> None:
         st.code(background.log_tail(40) or "(vuoto)", language=None)
         st.caption(f"File: `{background.LOG_FILE}`")
 
-    st.markdown("**3. Collega il tuo account** – apri il bot e premi **Avvia** (o scrivi `/start`): "
-                "da quel momento risponde solo a te.")
-    if user:
+    st.markdown("**3. Collega il tuo account** – premi il pulsante qui sotto e poi **Avvia** su Telegram: "
+                "da quel momento il bot risponde solo a te.")
+    code = pairing_code(cfg)
+    if user and not cfg["telegram_chat_id"]:
+        st.link_button(f"🔗 Collega su Telegram (@{user})", f"https://t.me/{user}?start={code}", type="primary")
+        st.caption(f"Il link contiene il tuo codice di collegamento **{code}** (in alternativa scrivi al bot "
+                   f"`/start {code}`): senza il codice nessun altro può prendere il controllo del bot.")
+    elif user:
         st.link_button(f"Apri @{user} su Telegram", f"https://t.me/{user}")
+    if secret.available():
+        st.caption("🔐 Il token è salvato cifrato (protezione di Windows): leggibile solo dal tuo utente su questo PC.")
     if cfg["telegram_chat_id"]:
         st.success(f"✅ Collegato alla chat {cfg['telegram_chat_id']}")
         x, y = st.columns(2)
@@ -99,7 +107,7 @@ def section_bot(cfg: dict) -> None:
         if st.button("🔎 Ho già scritto al bot: collega la chat senza avviarlo",
                      help="Legge l'ultimo messaggio ricevuto dal bot e salva la tua chat."):
             try:
-                ids = notify.find_chat_ids(cfg["telegram_token"])
+                ids = notify.find_chat_ids(cfg["telegram_token"], code=code)
             except Exception as e:  # noqa: BLE001
                 st.error(f"Errore: {e}")
                 ids = None
@@ -108,7 +116,7 @@ def section_bot(cfg: dict) -> None:
                 save_config(cfg)
                 st.rerun()
             elif ids is not None:
-                st.warning("Nessun messaggio trovato: scrivi qualcosa al bot su Telegram e riprova.")
+                st.warning(f"Nessun messaggio con il codice trovato: scrivi al bot `/start {code}` e riprova.")
 
 
 def _hm(iso: str | None) -> str:
@@ -148,8 +156,13 @@ def section_alerts(cfg: dict) -> None:
                              help="alta: decisioni Fed/BCE, upgrade/downgrade delle 4 banche, segnali forti. "
                                   "media: anche discorsi Fed, notizie importanti, 13F, 8-K. info: tutto.")
         always = st.checkbox("Manda il riepilogo ad ogni controllo anche senza novità", cfg["invia_riepilogo_sempre"])
+        q, m = st.columns(2)
+        quiet = q.text_input("Ore di silenzio (es. 23-7, vuoto = mai)", cfg.get("ore_silenzio", ""),
+                             help="In queste ore arrivano solo gli avvisi di livello alta; gli altri arrivano dopo.")
+        mx = m.number_input("Avvisi elencati per messaggio", 1, 50, int(cfg.get("max_avvisi_messaggio", 10)))
         if st.form_submit_button("💾 Salva"):
-            cfg.update(notifiche_desktop=desk, livello_minimo_avviso=level, invia_riepilogo_sempre=always)
+            cfg.update(notifiche_desktop=desk, livello_minimo_avviso=level, invia_riepilogo_sempre=always,
+                       ore_silenzio=quiet.strip(), max_avvisi_messaggio=int(mx))
             save_config(cfg)
             st.success("Salvato.")
 

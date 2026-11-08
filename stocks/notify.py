@@ -57,14 +57,18 @@ def notify_all(cfg: dict, title: str, text: str, short: str) -> list[str]:
     return status
 
 
-def find_chat_ids(token: str, session=None) -> list[str]:
-    """Chat ID di chi ha scritto al bot (serve per configurare Telegram)."""
+def find_chat_ids(token: str, session=None, code: str | None = None) -> list[str]:
+    """Chat ID di chi ha scritto al bot (serve per configurare Telegram). Con `code` solo chi
+    ha scritto il codice di collegamento."""
     s = session or requests
     r = s.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=20)
     r.raise_for_status()
     out = []
     for u in r.json().get("result", []):
-        chat = (u.get("message") or u.get("channel_post") or {}).get("chat", {})
+        m = u.get("message") or u.get("channel_post") or {}
+        chat = m.get("chat", {})
+        if code and code.upper() not in (m.get("text") or "").upper():
+            continue
         if chat.get("id") is not None:
             label = f"{chat['id']} ({chat.get('first_name') or chat.get('title') or ''})"
             if label not in out:

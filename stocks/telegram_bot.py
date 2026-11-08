@@ -13,6 +13,7 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from logging.handlers import RotatingFileHandler
 
 import pandas as pd
@@ -21,12 +22,13 @@ import requests
 from indicators import sizing_from_config, sizing_text, stat_text
 from stocks import background, sources
 from stocks.analysis import macro_tone, score_stocks
-from stocks.config import ANALYST_FIRMS, DATA_DIR, REPORT_DIR, load_config, save_config, ticker_info
+from stocks.config import ANALYST_FIRMS, DATA_DIR, REPORT_DIR, load_config, pairing_code, save_config, ticker_info
 from stocks.monitor import Snapshot, collect, load_snapshot, run_once
 from stocks.notify import notify_all, split_message
 
 log = logging.getLogger("radar.bot")
 BOT_STATE = DATA_DIR / "bot_stato.json"
+MAX_RESTARTS_PER_HOUR = 5
 
 COMMANDS = [
     ("compra", "Migliori titoli da comprare ora"),
@@ -123,8 +125,13 @@ class RadarBot:
         self.check_every = check_every_min * 60
         self.snap: Snapshot | None = None
         self._check_lock = threading.Lock()
+        self._snap_lock = threading.Lock()   # una sola raccolta dati alla volta, anche con più comandi insieme
+        self._state_lock = threading.Lock()
         self._token: str | None = None
         self.state = self._load_state()
+        # Con run_forever i comandi girano in thread separati: un /controlla di un minuto non blocca gli altri.
+        self.async_commands = False
+        self._pool: ThreadPoolExecutor | None = None
 
     # -- stato ---------------------------------------------------------------- #
     @staticmethod
@@ -135,8 +142,11 @@ class RadarBot:
             return {}
 
     def _save_state(self) -> None:
-        BOT_STATE.parent.mkdir(parents=True, exist_ok=True)
-        BOT_STATE.write_text(json.dumps(self.state), encoding="utf-8")
+        with self._state_lock:
+            BOT_STATE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = BOT_STATE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.state), encoding="utf-8")
+            tmp.replace(BOT_STATE)
 
     @property
     def cfg(self) -> dict:
@@ -155,7 +165,11 @@ class RadarBot:
         if chat_id is not None:
             self.api.send(chat_id, "⏳ Raccolgo prezzi, giudizi delle banche, notizie e dati SEC… (circa un minuto)",
                           keyboard=False)
-        self.snap = collect(cfg)
+        with self._snap_lock:
+            # un altro comando potrebbe aver appena finito la stessa raccolta
+            if self.snap is not None and self.snap.fetched_at >= fresh and set(self.snap.watchlist) == set(cfg["watchlist"]):
+                return self.snap
+            self.snap = collect(cfg)
         return self.snap
 
     def ranking(self, chat_id=None) -> pd.DataFrame:
@@ -172,12 +186,16 @@ class RadarBot:
         cfg = self.cfg
         owner = str(cfg.get("telegram_chat_id") or "")
         if not owner:
-            if text.startswith("/start"):
+            code = pairing_code(cfg)
+            given = text.partition(" ")[2].strip().upper() if text.startswith("/start") else ""
+            if given == code:
                 cfg["telegram_chat_id"] = str(chat_id)
                 save_config(cfg)
                 self.api.send(chat_id, "✅ Ciao! Questo bot ora risponde solo a te e ti manderà gli avvisi.\n\n" + self.cmd_aiuto())
             else:
-                self.api.send(chat_id, "Scrivi /start per collegare questo bot.", keyboard=False)
+                self.api.send(chat_id, "🔒 Per collegare questo bot apri l'app → ⚙️ Impostazioni & Bot e premi "
+                                       "«Collega su Telegram», oppure scrivi /start seguito dal codice di "
+                                       "collegamento che trovi lì.", keyboard=False)
             return
         if str(chat_id) != owner:
             self.api.send(chat_id, "⛔ Questo è un bot privato.", keyboard=False)
@@ -512,11 +530,19 @@ class RadarBot:
         for upd in updates:
             self.state["offset"] = upd["update_id"] + 1
             self._save_state()
-            try:
-                self.handle_update(upd)
-            except Exception:  # noqa: BLE001
-                log.exception("Messaggio non gestito")
+            if self.async_commands:
+                if self._pool is None:
+                    self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="comando")
+                self._pool.submit(self._handle_safe, upd)
+            else:
+                self._handle_safe(upd)
         return len(updates)
+
+    def _handle_safe(self, upd: dict) -> None:
+        try:
+            self.handle_update(upd)
+        except Exception:  # noqa: BLE001
+            log.exception("Messaggio non gestito")
 
     def run_forever(self, stop: threading.Event | None = None) -> None:
         stop = stop or threading.Event()
@@ -531,6 +557,16 @@ class RadarBot:
 
         commands_set = False
         backoff = 5
+        self.async_commands = True
+        try:
+            self._loop(stopped, wait, commands_set, backoff)
+        finally:
+            self.async_commands = False
+            if self._pool is not None:  # lascia finire le risposte già in corso
+                self._pool.shutdown(wait=True)
+                self._pool = None
+
+    def _loop(self, stopped, wait, commands_set: bool, backoff: float) -> None:
         while not stopped():
             due = time.time() - self.state.get("last_check", 0) >= self.check_every
             if due and not self._check_lock.locked():
@@ -592,12 +628,23 @@ def main(argv: list[str] | None = None) -> int:
                             ultimo_contatto=None, ultimo_errore=None, ultimo_controllo=None)
     log.info("Bot avviato (pid %s)", os.getpid())
     api = TelegramAPI(cfg["telegram_token"]) if cfg.get("telegram_token") else None
+    crashes: list[float] = []
     try:
-        RadarBot(api).run_forever()
-    except Exception as e:  # noqa: BLE001
-        log.exception("Il bot si è fermato per un errore")
-        background.write_status(stato="fermo per errore", ultimo_errore=f"{type(e).__name__}: {e}")
-        return 1
+        while True:
+            try:
+                RadarBot(api).run_forever()
+                break
+            except Exception as e:  # noqa: BLE001 - errore imprevisto: il bot si riavvia da solo
+                log.exception("Il bot si è fermato per un errore")
+                now = time.time()
+                crashes = [t for t in crashes if now - t < 3600] + [now]
+                if len(crashes) > MAX_RESTARTS_PER_HOUR or background.stop_requested():
+                    background.write_status(stato="fermo per errore", ultimo_errore=f"{type(e).__name__}: {e}")
+                    return 1
+                background.write_status(ultimo_errore=f"riavvio dopo {type(e).__name__}: {e}"[:300])
+                time.sleep(min(60, 5 * len(crashes)))
+                cfg = load_config()
+                api = TelegramAPI(cfg["telegram_token"]) if cfg.get("telegram_token") else None
     finally:
         lock.close()
     background.write_status(stato="fermo")
