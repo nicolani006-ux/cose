@@ -41,6 +41,8 @@ def test_launcher_version_and_self_test():
     out = subprocess.run([sys.executable, str(ROOT / "launcher.py"), "--versione"], capture_output=True, text=True,
                          timeout=60)
     assert out.stdout.strip() == VERSION
+    if sys.platform != "win32":  # l'autotest importa anche la finestra desktop: provato dalla CI sull'exe
+        return
     res = subprocess.run([sys.executable, str(ROOT / "launcher.py"), "--self-test"], capture_output=True, text=True,
                          timeout=300)
     assert res.returncode == 0, res.stdout + res.stderr

@@ -1,6 +1,18 @@
 # Controllo orario delle azioni anche a PC spento, con avvisi su Telegram.
 # Si attiva solo se nel repository esiste la variabile MONITOR_ATTIVO = true
 # (Settings → Secrets and variables → Actions → Variables) e funziona sul branch principale.
+#
+# Variabili facoltative:
+#   TEST_SU_GITHUB = true  fa girare qui anche il test delle previsioni crypto (24 ore su 24, senza buchi
+#                          quando il PC è spento). In quel caso disattivalo nell'app sul PC (config.json:
+#                          "test_previsioni": false), altrimenti i due registri divergono.
+#                          Il file Excel si scarica da Actions → ultima esecuzione → Artifacts.
+#   BOT_SU_GITHUB = true   risponde ai comandi arrivati nell'ultima ora (solo se il bot NON è acceso sul PC).
+#   WATCHLIST              es. AAPL,NVDA,JPM
+#
+# Lo stato (avvisi già inviati, registro delle previsioni) è salvato nella cache di Actions: ogni esecuzione
+# riparte dall'ultima salvata. GitHub elimina le cache non usate da 7 giorni, quindi con il controllo orario
+# lo stato resta; se il workflow resta fermo più a lungo, il primo giro registra tutto senza inviare avvisi.
 name: Controllo azioni ogni ora
 
 on:
@@ -30,16 +42,27 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-monitor.txt
+          cache-dependency-path: constraints.txt
       - run: pip install -r requirements-monitor.txt
-      # Lo stato (avvisi già inviati) viene conservato tra un'esecuzione e l'altra
+      - if: ${{ vars.TEST_SU_GITHUB == 'true' }}
+        run: pip install -r requirements-previsioni.txt
       - uses: actions/cache@v4
         with:
           path: .radar
           key: monitor-state-${{ github.run_id }}
           restore-keys: monitor-state-
       - run: python monitor.py
-      # Risponde ai comandi arrivati nell'ultima ora. Attivalo (variabile BOT_SU_GITHUB = true)
-      # solo se il bot NON è acceso anche sul PC: due bot con lo stesso token si rubano i messaggi.
+      # Test delle previsioni crypto (dati pubblici di data-api.binance.vision, raggiungibile anche dagli USA)
+      - if: ${{ vars.TEST_SU_GITHUB == 'true' }}
+        run: python excel_previsioni.py --avvisa
+        continue-on-error: true   # exchange non raggiungibile: si riprova al prossimo giro
+      - if: ${{ vars.TEST_SU_GITHUB == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-previsioni
+          path: .radar/report/test_previsioni.xlsx
+          retention-days: 7
+          overwrite: true
+      # Due bot con lo stesso token si rubano i messaggi: attivalo solo se il bot non è acceso sul PC.
       - if: ${{ vars.BOT_SU_GITHUB == 'true' }}
         run: python bot.py --una-volta

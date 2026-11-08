@@ -1,9 +1,16 @@
 name: Build
 
+# Ad ogni push: test, poi eseguibili per Windows e macOS con autotest (--self-test).
+# Con un tag "v*" (es. git tag v2.0.0 && git push --tags) gli zip vengono pubblicati in una
+# GitHub Release: l'app e il bot la trovano da soli e avvisano che c'è un aggiornamento.
+
 on:
   push:
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write   # serve solo per creare la release dai tag
 
 jobs:
   test:
@@ -13,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints.txt
       - run: pip install -r requirements-build.txt
       - run: python -m pytest -q tests
 
@@ -24,8 +33,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints.txt
       - run: pip install -r requirements-build.txt
       - run: pyinstaller --noconfirm crypto_radar.spec
+      - name: Autotest dell'eseguibile (moduli e skill inclusi)
+        shell: pwsh
+        run: |
+          $env:RADAR_HOME = "$env:RUNNER_TEMP\radar"
+          $p = Start-Process -FilePath "dist\Crypto Radar Ultimate.exe" -ArgumentList "--self-test" -Wait -PassThru
+          Get-Content "$env:RADAR_HOME\self_test.txt" -ErrorAction SilentlyContinue
+          exit $p.ExitCode
       - name: Aggiungi allo zip il codice sorgente e la guida
         shell: bash
         run: |
@@ -48,8 +66,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: constraints.txt
       - run: pip install -r requirements-build.txt
       - run: pyinstaller --noconfirm crypto_radar.spec
+      - name: Autotest dell'eseguibile
+        run: RADAR_HOME="$RUNNER_TEMP/radar" "dist/Crypto Radar Ultimate.app/Contents/MacOS/Crypto Radar Ultimate" --self-test
       - run: hdiutil create -volname "Crypto Radar Ultimate" -srcfolder "dist/Crypto Radar Ultimate.app" -ov -format UDZO "dist/Crypto Radar Ultimate.dmg"
       - name: Aggiungi allo zip il codice sorgente e la guida
         run: |
@@ -63,3 +85,22 @@ jobs:
             dist/Crypto Radar Ultimate.dmg
             dist/LEGGIMI.txt
             dist/Codice sorgente
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - name: Crea gli zip
+        run: |
+          cd art
+          for d in Crypto-Radar-Ultimate-Windows Crypto-Radar-Ultimate-macOS; do (cd "$d" && zip -qr "../../$d.zip" .); done
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Crypto-Radar-Ultimate-Windows.zip
+            Crypto-Radar-Ultimate-macOS.zip
+          generate_release_notes: true

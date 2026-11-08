@@ -4,6 +4,8 @@
     python excel_previsioni.py --loop 60           ripete ogni 60 minuti
     python excel_previsioni.py --solo-excel        rigenera l'Excel dai dati salvati, senza internet
     python excel_previsioni.py --cartella DIR      dove tenere dati ed Excel (predefinita: RadarUltimate)
+    python excel_previsioni.py --avvisa            avvisa su Telegram quando un'operazione si chiude
+                                                   (usato dal controllo su GitHub Actions)
 
 Il file è <cartella>/report/test_previsioni.xlsx: colonna A crypto, B probabilità di rialzo ipotizzata,
 C prezzo BUY → SELL ipotizzato, D margine ipotizzato, E guadagno effettivo, poi dettagli e statistiche.
@@ -26,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cartella", help="cartella dei dati (default: RadarUltimate nella cartella utente)")
     p.add_argument("--loop", type=int, metavar="MINUTI", help="ripeti ogni N minuti")
     p.add_argument("--solo-excel", action="store_true", help="solo rigenera l'Excel dai dati già salvati")
+    p.add_argument("--avvisa", action="store_true", help="avvisa (Telegram/desktop) quando un'operazione si chiude")
     args = p.parse_args(argv)
     if args.cartella:
         os.environ["RADAR_HOME"] = os.path.abspath(args.cartella)
@@ -44,6 +47,11 @@ def main(argv: list[str] | None = None) -> int:
               f"{len(res['closed'])} operazioni chiuse")
         for e in res["closed"]:
             print("  " + pv.closed_text(e))
+        if args.avvisa and res["closed"]:
+            from stocks.notify import notify_all
+
+            text = "\n".join([*(pv.closed_text(e) for e in res["closed"]), "", pv.summary_text(res["stats"])])
+            print(notify_all(load_config(), "🧪 Test previsioni", text, pv.closed_text(res["closed"][0])))
         if res["error"]:
             print(f"⚠️ Exchange non raggiungibile ({res['error']}): Excel rigenerato con i dati già salvati.")
         print(pv.summary_text(res["stats"]))

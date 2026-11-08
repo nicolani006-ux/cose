@@ -1,0 +1,16 @@
+# Aggiornamenti controllati delle librerie: Dependabot apre una pull request alla settimana con le nuove
+# versioni in constraints.txt; la CI (workflow Build) esegue i test e l'autotest dell'eseguibile prima del merge.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      librerie:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
