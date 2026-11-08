@@ -6,12 +6,17 @@ import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
 datas = [("app.py", ".")]
+# script delle skill di day-trader-skill (MIT) usati dall'app: Congresso USA e bilanci SEC
+datas += [(".claude/skills/trader-pelosi/ptr.py", "skills/trader-pelosi"),
+          (".claude/skills/trader-analyst/facts.py", "skills/trader-analyst"),
+          (".claude/skills/LICENSE-day-trader-skill", "skills")]
 binaries = []
 # app.py viene eseguito da Streamlit come file, quindi i moduli che importa
 # (e le loro dipendenze) vanno dichiarati esplicitamente.
 hiddenimports = [
     "nav", "trend_crypto", "stock_radar", "settings_page", "test_page", "previsioni", "indicators", "charts",
-    "ui_common", "crypto_core", "excel_previsioni",
+    "ui_common", "crypto_core", "excel_previsioni", "stocks.skills", "stocks.congress", "stocks.fundamentals",
+    "pypdf", "zipfile", "xml.etree.ElementTree", "gzip",
     "stocks", "stocks.config", "stocks.sources", "stocks.analysis", "stocks.monitor",
     "stocks.notify", "stocks.background", "stocks.telegram_bot",
     "ccxt", "feedparser", "openpyxl", "altair", "requests", "yfinance",

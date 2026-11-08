@@ -193,7 +193,23 @@ def rating_points(r, now: pd.Timestamp) -> tuple[float, str]:
 # --------------------------------------------------------------------------- #
 
 STOCK_HORIZON_DAYS = 20  # durata massima di un'operazione nella statistica storica (giorni di borsa)
-WEIGHTS = {"tecnico": 0.35, "analisti": 0.30, "notizie": 0.15, "istituzioni": 0.10, "macro": 0.10}
+WEIGHTS = {"tecnico": 0.35, "analisti": 0.30, "notizie": 0.10, "istituzioni": 0.10, "macro": 0.10,
+           "congresso": 0.05}
+CONGRESS_POINTS = {"P": 25, "S": -25, "S (partial)": -12, "E": 0}
+
+
+def congress_score(trades: pd.DataFrame, ticker: str) -> tuple[float, str]:
+    """Acquisti e vendite dichiarati dai deputati USA sul titolo: un voto per deputato e verso."""
+    if trades is None or trades.empty:
+        return 0.0, ""
+    mine = trades[trades["ticker"] == ticker].drop_duplicates(["member", "type"])
+    if mine.empty:
+        return 0.0, ""
+    pts = float(np.clip(sum(CONGRESS_POINTS.get(t, 0) for t in mine["type"]), -100, 100))
+    buys = mine[mine["type"] == "P"]["member"].tolist()
+    sells = mine[mine["type"].astype(str).str.startswith("S")]["member"].tolist()
+    parts = ([f"compra {', '.join(buys[:3])}"] if buys else []) + ([f"vende {', '.join(sells[:3])}"] if sells else [])
+    return pts, "Congresso USA: " + "; ".join(parts)
 NEGATIVE_8K_ITEMS = {"1.03", "2.06", "3.01", "4.01", "4.02"}
 
 
@@ -276,8 +292,12 @@ def score_stocks(snap, watchlist: list[str]) -> pd.DataFrame:
         if abs(tone) >= 0.2 and abs(m_score) >= 10:
             reasons.append(f"Fed {'accomodante' if tone > 0 else 'restrittiva'}: {'favorevole' if m_score > 0 else 'sfavorevole'} a {sector}")
 
+        c_score, c_reason = congress_score(getattr(snap, "congress", None), t)
+        if c_reason:
+            reasons.append(c_reason)
+
         parts = {"tecnico": tech["score"], "analisti": a_score, "notizie": n_score,
-                 "istituzioni": i_score, "macro": m_score}
+                 "istituzioni": i_score, "macro": m_score, "congresso": c_score}
         score = float(np.clip(sum(WEIGHTS[k] * v for k, v in parts.items()), -100, 100))
         close = df["close"]
         rows.append({

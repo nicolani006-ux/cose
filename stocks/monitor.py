@@ -57,6 +57,7 @@ class Snapshot:
     filings_13f: list = field(default_factory=list)
     errors: list = field(default_factory=list)
     watchlist: list = field(default_factory=list)
+    congress: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 # --------------------------------------------------------------------------- #
@@ -78,6 +79,12 @@ def _collect_news(errors: list) -> pd.DataFrame:
     with ThreadPoolExecutor(max_workers=6) as pool:
         items = [i for res in pool.map(one, jobs) for i in res]
     return pd.DataFrame(items, columns=NEWS_COLUMNS).drop_duplicates("id")
+
+
+def _collect_congress(errors: list) -> pd.DataFrame:
+    from stocks import congress
+
+    return congress.collect_trades(CACHE_DIR / "congresso", days=45, errors=errors)
 
 
 def _collect_13f(sec, watchlist: list[str], errors: list) -> tuple[pd.DataFrame, list]:
@@ -122,6 +129,8 @@ def collect(cfg: dict, progress=None, timeout: float = SOURCE_TIMEOUT) -> Snapsh
         jobs["SEC 8-K"] = (lambda: sec.recent_8k(wl), pd.DataFrame())
     if cfg.get("controlla_13f"):
         jobs["SEC 13F"] = (lambda: _collect_13f(sec, wl, errors), (empty_holdings, []))
+    if cfg.get("controlla_congresso", True):
+        jobs["Congresso USA"] = (lambda: _collect_congress(errors), pd.DataFrame())
 
     pool = ThreadPoolExecutor(max_workers=len(jobs))
     futures = {pool.submit(fn): label for label, (fn, _) in jobs.items()}
@@ -153,6 +162,8 @@ def collect(cfg: dict, progress=None, timeout: float = SOURCE_TIMEOUT) -> Snapsh
     snap.filings = get("SEC 8-K") if "SEC 8-K" in jobs else pd.DataFrame()
     if "SEC 13F" in jobs:
         snap.holdings, snap.filings_13f = get("SEC 13F")
+    if "Congresso USA" in jobs:
+        snap.congress = get("Congresso USA")
     if not snap.prices and "Prezzi" in results:
         errors.append("Prezzi: nessun dato scaricato (Yahoo Finance non raggiungibile?)")
     if not cfg.get("sec_user_agent"):
@@ -253,6 +264,20 @@ def build_alerts(snap: Snapshot, ranking: pd.DataFrame, state: dict) -> list[dic
             if parts:
                 txt += ": " + "; ".join(parts)
         alerts.append(_alert(f"13f:{m['filer']}:{m['accession']}", "media", txt))
+
+    congress = getattr(snap, "congress", pd.DataFrame())
+    if not congress.empty:
+        from stocks.congress import describe_trade
+
+        wl = set(state.get("watchlist") or []) | set(ranking["ticker"] if not ranking.empty else [])
+        for i, r in enumerate(congress.to_dict("records")):
+            mine = r.get("ticker") in wl
+            big = (r.get("amount_high") or 0) >= 250_000
+            if not (mine or big):
+                continue
+            level = "alta" if mine and big else ("media" if mine or big else "info")
+            alerts.append(_alert(f"congress:{r['doc_id']}:{r.get('ticker')}:{r.get('date')}:{r.get('type')}:{i}",
+                                 level, "🏛️ Congresso USA: " + describe_trade(r), r.get("url") or ""))
 
     prev = state.get("last_signal", {})
     for r in ranking.itertuples() if not ranking.empty else []:

@@ -18,7 +18,7 @@ from logging.handlers import RotatingFileHandler
 import pandas as pd
 import requests
 
-from indicators import stat_text
+from indicators import sizing_from_config, sizing_text, stat_text
 from stocks import background, sources
 from stocks.analysis import macro_tone, score_stocks
 from stocks.config import ANALYST_FIRMS, DATA_DIR, REPORT_DIR, load_config, save_config, ticker_info
@@ -37,6 +37,7 @@ COMMANDS = [
     ("banche", "Ultimi giudizi di Goldman, JPMorgan, Morgan Stanley, BofA"),
     ("notizie", "Ultime notizie, es. /notizie goldman"),
     ("fondi", "Cosa comprano BlackRock, Vanguard, State Street"),
+    ("congresso", "Operazioni dei deputati USA, es. /congresso pelosi o /congresso NVDA"),
     ("avvisi", "Ultimi avvisi"),
     ("controlla", "Esegui subito il controllo completo"),
     ("crypto", "Migliori criptovalute ora"),
@@ -49,7 +50,7 @@ COMMANDS = [
 ]
 BUTTONS = {
     "🏆 Compra": "compra", "📉 Evita": "evita", "📊 Classifica": "classifica",
-    "🏛️ Fed": "fed", "🏦 Banche": "banche", "🏢 Fondi": "fondi",
+    "🏛️ Fed": "fed", "🏦 Banche": "banche", "🏢 Fondi": "fondi", "🗳️ Congresso": "congresso",
     "📰 Notizie": "notizie", "🔔 Avvisi": "avvisi", "▶️ Controlla": "controlla",
     "🪙 Crypto": "crypto", "🧪 Test": "test", "ℹ️ Aiuto": "aiuto",
 }
@@ -100,14 +101,16 @@ class TelegramAPI:
         self.call("setMyCommands", commands=[{"command": c, "description": d} for c, d in COMMANDS])
 
 
-def plan_line(r) -> str:
-    """🎯 BUY / SELL / STOP con la probabilità (storia + Time Machine)."""
+def plan_line(r, cfg: dict | None = None) -> str:
+    """🎯 BUY / SELL / STOP con la probabilità (storia + Time Machine) e, se c'è il capitale, la quantità."""
     if pd.isna(r.get("buy")):
         return "🎯 Livelli non disponibili (storico insufficiente)"
     p = r.get("probability")
     prob = f" · probabilità SELL {p:.0f}%" if p is not None and not pd.isna(p) else ""
-    return (f"🎯 BUY {r['buy']:,.2f}$ · SELL {r['sell']:,.2f}$ (+{r['upside_pct']:.1f}%) · "
+    line = (f"🎯 BUY {r['buy']:,.2f}$ · SELL {r['sell']:,.2f}$ (+{r['upside_pct']:.1f}%) · "
             f"STOP {r['stop']:,.2f}$ (-{r['risk_pct']:.1f}%){prob}")
+    sz = sizing_from_config(r, cfg or {})
+    return line + ("\n   " + sizing_text(sz) if sz else "")
 
 
 def _pct(v) -> str:
@@ -216,7 +219,7 @@ class RadarBot:
         for i, r in enumerate(rows.itertuples(), 1):
             line = f"{i}. {r.ticker} ({r.name}) {r.score:+.0f} {r.signal} · {r.price:,.2f}$ ({_pct(r.chg_1d)} oggi)"
             if plan:
-                line += "\n   " + plan_line(r._asdict())
+                line += "\n   " + plan_line(r._asdict(), self.cfg)
             if reasons:
                 line += "\n   " + r.reasons[:300]
             out.append(line)
@@ -268,11 +271,12 @@ class RadarBot:
             f"Punteggio {r['score']:+.0f} → {r['signal']}",
             f"(tecnico {r['s_tecnico']:+.0f} · banche {r['s_analisti']:+.0f} · notizie {r['s_notizie']:+.0f} · "
             f"13F {r['s_istituzioni']:+.0f} · Fed {r['s_macro']:+.0f})",
-            "", plan_line(r),
+            "", plan_line(r, self.cfg),
             f"📊 Storico: {stat_text(r, 'giorni')}",
             *([f"⏱️ Time Machine: {r['mc_verdict']}"] if isinstance(r.get("mc_verdict"), str) else []),
             *(["⚠️ Il segnale attuale non è d'acquisto: lo STOP serve se hai già il titolo, il BUY per un "
                "ingresso futuro."] if r["score"] < 20 else []),
+            *([self._fundamentals(t)] if self._fundamentals(t) else []),
             "", "Motivi:", *[f"• {x}" for x in r["reasons"].split(" · ")],
         ]
         if not ratings.empty and t in set(ratings["ticker"]):
@@ -285,6 +289,24 @@ class RadarBot:
                 lines += ["", "📰 Notizie:"] + [f"• {n.title} ({n.publisher})\n  {n.link}" for n in mine.itertuples()]
         lines += ["", DISCLAIMER]
         return "\n".join(lines)
+
+    def _fundamentals(self, ticker: str) -> str:
+        """Riga sui bilanci SEC (cache 12 ore); vuota se non disponibili."""
+        cache = getattr(self, "_fund_cache", {})
+        self._fund_cache = cache
+        if ticker not in cache:
+            ua = self.cfg.get("sec_user_agent", "")
+            text = ""
+            if ua:
+                try:
+                    from stocks.config import CACHE_DIR
+                    from stocks.fundamentals import company_metrics, metrics_text
+
+                    text = metrics_text(company_metrics(ticker, sources.Sec(ua, CACHE_DIR), CACHE_DIR))
+                except Exception:  # noqa: BLE001 - SEC non raggiungibile o titolo senza dati
+                    text = ""
+            cache[ticker] = text
+        return cache[ticker]
 
     def cmd_fed(self, arg, chat_id):
         snap = self.snapshot(chat_id)
@@ -326,6 +348,23 @@ class RadarBot:
         for n in news.itertuples():
             mood = "📈 " if n.sentiment >= 0.34 else "📉 " if n.sentiment <= -0.34 else ""
             lines.append(f"• {mood}{n.title} – {n.publisher} [{n.group}]\n  {n.link}")
+        return "\n".join(lines)
+
+    def cmd_congresso(self, arg, chat_id):
+        from stocks.congress import describe_trade
+
+        trades = getattr(self.snapshot(chat_id), "congress", pd.DataFrame())
+        if trades.empty:
+            return "🗳️ Nessuna operazione dei deputati USA negli ultimi 45 giorni (o fonte non raggiungibile)."
+        if arg:
+            q = arg.strip().lower()
+            trades = trades[trades["member"].str.lower().str.contains(q, regex=False)
+                            | trades["ticker"].fillna("").str.lower().eq(q)]
+            if trades.empty:
+                return f"🗳️ Nessuna operazione per «{arg}» negli ultimi 45 giorni."
+        lines = [f"🗳️ Operazioni dichiarate dai deputati USA{' – ' + arg if arg else ''}:"]
+        lines += [f"• {describe_trade(r)}" for r in trades.head(15).to_dict("records")]
+        lines.append("\nFonte: House Clerk (STOCK Act). Le operazioni vengono dichiarate fino a 45 giorni dopo.")
         return "\n".join(lines)
 
     def cmd_fondi(self, arg, chat_id):

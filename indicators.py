@@ -468,3 +468,52 @@ def mc_verdict(share: float, even: float) -> str:
     else:
         head = "Fortemente verso il SELL" if gap > 0 else "Fortemente verso lo STOP"
     return f"{head}: SELL nel {share:.0f}% dei casi decisi, ne serve il {even:.0f}% per andare in pari"
+
+
+# --------------------------------------------------------------------------- #
+# Quantità da comprare (regole di "trader-budget" di day-trader-skill, MIT)
+# --------------------------------------------------------------------------- #
+
+def position_size(buy: float, stop: float, target: float, capital: float, max_loss: float,
+                  max_position_pct: float = 75, cash_buffer_pct: float = 10, max_order: float = 0,
+                  fractional: bool = False) -> dict | None:
+    """La quantità più piccola tra i limiti: perdita allo STOP ≤ `max_loss`, posizione ≤ `max_position_pct`
+    del capitale, spesa ≤ capitale meno la riserva di liquidità, spesa ≤ `max_order` (0 = nessun limite).
+    Azioni intere, oppure frazioni (crypto). None se il capitale non è impostato."""
+    if not capital or capital <= 0 or not (0 < stop < buy) or not np.isfinite(buy):
+        return None
+    risk = buy - stop
+    limits = {
+        "perdita massima allo STOP": max_loss / risk if max_loss and max_loss > 0 else np.inf,
+        "posizione massima": capital * max_position_pct / 100 / buy if max_position_pct else np.inf,
+        "liquidità disponibile": capital * (1 - cash_buffer_pct / 100) / buy,
+        "ordine massimo": max_order / buy if max_order and max_order > 0 else np.inf,
+    }
+    bound_by, q = min(limits.items(), key=lambda kv: kv[1])
+    qty = np.floor(q * 1e6) / 1e6 if fractional else float(np.floor(q))
+    out = {"qty": qty, "bound_by": bound_by, "fractional": fractional}
+    if qty <= 0:
+        out["why"] = (f"lo STOP è troppo lontano: anche 1 unità perderebbe {risk:,.2f}, più di {max_loss:,.2f}"
+                      if bound_by.startswith("perdita") else f"limite raggiunto: {bound_by}")
+        return out
+    out.update(cost=qty * buy, loss_at_stop=qty * risk, gain_at_target=qty * (target - buy))
+    return out
+
+
+def sizing_from_config(row, cfg: dict, fractional: bool = False) -> dict | None:
+    """position_size con le impostazioni dell'utente (capitale, rischio per operazione...)."""
+    if row is None or pd.isna(row.get("buy")) or pd.isna(row.get("stop")):
+        return None
+    return position_size(row["buy"], row["stop"], row["sell"], float(cfg.get("capitale") or 0),
+                         float(cfg.get("rischio_max_operazione") or 0), float(cfg.get("posizione_max_pct") or 0),
+                         float(cfg.get("riserva_cassa_pct") or 0), float(cfg.get("ordine_max") or 0), fractional)
+
+
+def sizing_text(sz: dict | None, unit: str = "$") -> str:
+    if not sz:
+        return ""
+    if sz["qty"] <= 0:
+        return f"💰 Non comprare: {sz['why']}"
+    q = f"{sz['qty']:.6g}" if sz["fractional"] else f"{int(sz['qty'])}"
+    return (f"💰 Quantità {q} (spesa {sz['cost']:,.2f}{unit}) · perdita allo STOP {sz['loss_at_stop']:,.2f}{unit} · "
+            f"guadagno al SELL {sz['gain_at_target']:,.2f}{unit} · limite decisivo: {sz['bound_by']}")

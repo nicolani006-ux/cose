@@ -75,9 +75,10 @@ e indica i **migliori candidati all'acquisto** e quelli da evitare, spiegando se
 |---|---|---|
 | 35% | Analisi tecnica (EMA 20/50/200, MACD, RSI, volumi, breakout) | Yahoo Finance |
 | 30% | Upgrade/downgrade e target price di **Goldman Sachs, J.P. Morgan, Morgan Stanley, Bank of America** (peso pieno) e Citi, Wells Fargo, UBS, Barclays, Deutsche Bank (peso ridotto) | Yahoo Finance |
-| 15% | Sentiment delle notizie che citano il titolo; comunicazioni SEC 8-K negative | Google News, SEC EDGAR |
+| 10% | Sentiment delle notizie che citano il titolo; comunicazioni SEC 8-K negative | Google News, SEC EDGAR |
 | 10% | Azioni comprate/vendute da **BlackRock, Vanguard, State Street** (confronto ultimi due 13F) | SEC EDGAR |
 | 10% | Tono della **Federal Reserve** (tassi giù/su) e suo effetto sul settore | federalreserve.gov |
+| 5% | Acquisti e vendite dichiarati dai **deputati USA** (Pelosi & co., STOCK Act) | House Clerk |
 
 ### 🎯 Prezzi BUY / SELL / STOP e statistica storica
 
@@ -154,6 +155,7 @@ Comandi (oppure i pulsanti che compaiono sotto la chat):
 | `/fed` | tono della Fed e ultimi comunicati/discorsi |
 | `/banche` | ultimi giudizi di Goldman Sachs, J.P. Morgan, Morgan Stanley, Bank of America… |
 | `/fondi` | cosa comprano/vendono BlackRock, Vanguard, State Street (13F) |
+| `/congresso pelosi` (o `/congresso NVDA`) | operazioni dichiarate dai deputati USA |
 | `/notizie goldman` | ultime notizie (filtro facoltativo) |
 | `/avvisi` | ultimi avvisi |
 | `/controlla` | esegue subito il controllo completo |
@@ -183,6 +185,51 @@ Dati, impostazioni e report sono nella cartella `RadarUltimate` dentro la tua ca
 
 > ⚠️ Il punteggio è un sistema automatico basato su regole: non prevede il futuro e non è consulenza
 > finanziaria. Usalo come punto di partenza per le tue valutazioni.
+
+## 🧰 Skill di day-trading (da day-trader-skill)
+
+In `.claude/skills/` ci sono le 11 skill di [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill)
+di Jake Schincariol (licenza MIT, `.claude/skills/LICENSE-day-trader-skill`). In Claude Code, aprendo questa
+cartella, si usano con lo slash:
+
+| Comando | Cosa fa |
+|---|---|
+| `/trader-scanner` | Cerca setup su migliaia di azioni USA: rotture del range di apertura, bandiere, ipervenduto |
+| `/trader-news` | Notizie Yahoo e comunicazioni SEC 8-K su ogni titolo seguito, solo le novità |
+| `/trader-entry` | Segue un setup candela per candela e dice quando entrare |
+| `/trader-exit` | Fissa STOP e obiettivo prima di entrare |
+| `/trader-timemachine` | Rigioca 10.000 volte il resto della seduta prima di rischiare un dollaro |
+| `/trader-risk` | Controlla ogni ordine contro i tuoi limiti (PASS / BLOCK) |
+| `/trader-budget` | Quante azioni comprare con il tuo budget e la perdita massima per operazione |
+| `/trader-broker` | Manda gli ordini approvati al broker (Alpaca, **simulazione di default**, mai senza il tuo sì) |
+| `/trader-alerts` | Avvisi su prezzo, STOP, obiettivo e campanella di apertura |
+| `/trader-analyst` | Legge i bilanci dalla SEC e riassume cosa è cambiato |
+| `/trader-pelosi` | Operazioni in borsa dichiarate dai deputati USA, appena depositate |
+
+Sono pensate per il **day trading su azioni USA** (orari della borsa di New York, candele da 5 minuti): i dati
+e i file di lavoro finiscono nella cartella `trader/` del progetto (esclusa da git). Nessuna skill piazza ordini
+da sola: `/trader-broker` funziona solo se colleghi tu un broker (server MCP di Alpaca o connettore IBKR) e va
+sempre lasciato su **"Needs approval"**, mai "Always allow".
+
+Prima di installarle tutto il codice è stato letto riga per riga: nessun comportamento malevolo, contattano
+solo fonti pubbliche (Yahoo Finance, SEC, House Clerk, Nasdaq Trader, Stooq). Due modifiche di sicurezza:
+`trader-pelosi/ptr.py` accetta solo DocID numerici (prima un valore manipolato poteva scrivere fuori dalla
+cartella dei PDF) e `trader-broker/SKILL.md` passa la tua risposta al comando tra apici singoli (prima, tra
+virgolette, la shell avrebbe potuto eseguirne pezzi). I loro 304 test girano con i nostri (`tests/day_trader`).
+
+### Cosa è entrato nell'app
+
+- **Time Machine** (da `trader-timemachine`): per ogni piano BUY/SELL/STOP di crypto e azioni, 2.000
+  simulazioni del futuro costruite con le candele passate della stessa ora del giorno e un verdetto
+  rispetto al pareggio. La **probabilità SELL** mostrata ovunque è la media tra storia reale e Time Machine;
+  nel test delle previsioni sono registrate anche separate, con il Brier score di ciascuna.
+- **Quantità da comprare** (da `trader-budget`): in *Impostazioni → Capitale e rischio* imposti capitale e
+  perdita massima per operazione; ogni piano dice quante azioni/unità comprare e quale limite ha deciso.
+- **Congresso USA** (da `trader-pelosi`): nuova scheda *🗳️ Congresso USA*, comando `/congresso` del bot, avvisi
+  quando un deputato compra o vende un titolo della watchlist (o oltre 250.000 $) e 5% del punteggio. Su
+  Windows i PDF si leggono con `pypdf` (incluso), senza installare nulla.
+- **Bilanci SEC** (da `trader-analyst`): nell'analisi del titolo e in `/titolo` del bot, ricavi, utile per
+  azione e margini trimestre per trimestre con la crescita rispetto all'anno prima.
 
 ## Scaricare l'app già pronta (Windows / Mac)
 

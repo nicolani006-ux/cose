@@ -129,6 +129,13 @@ DEFAULT_CONFIG: dict = {
     "invia_riepilogo_sempre": False,
     "controlla_13f": True,
     "controlla_8k": True,
+    "controlla_congresso": True,
+    # Quantità da comprare (0 = non calcolarla). Stessa valuta dei prezzi: $ per le azioni, USDT per le crypto
+    "capitale": 0,
+    "rischio_max_operazione": 50,   # perdita massima accettata allo STOP per ogni operazione
+    "posizione_max_pct": 75,        # massimo del capitale in un solo titolo
+    "riserva_cassa_pct": 10,        # liquidità sempre lasciata da parte
+    "ordine_max": 0,                # spesa massima per ordine (0 = nessun limite)  # operazioni dichiarate dai deputati USA (House Clerk, STOCK Act)
     # Test delle previsioni crypto sui prezzi reali (file report/test_previsioni.xlsx)
     "test_previsioni": True,
     "test_exchange": "binance",

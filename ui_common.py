@@ -7,10 +7,11 @@ import pandas as pd
 import streamlit as st
 
 from charts import fmt_price
-from indicators import PLAN_HELP, stat_text
+from indicators import PLAN_HELP, sizing_from_config, sizing_text, stat_text
+from stocks.config import load_config
 
 
-def plan_metrics(row, unit: str = "candele", fmt=fmt_price) -> None:
+def plan_metrics(row, unit: str = "candele", fmt=fmt_price, fractional: bool = True) -> None:
     """Riga con i prezzi BUY / SELL / STOP e la statistica storica."""
     if pd.isna(row["buy"]):
         st.caption("Storico insufficiente per calcolare i livelli.")
@@ -31,6 +32,9 @@ def plan_metrics(row, unit: str = "candele", fmt=fmt_price) -> None:
     if isinstance(row.get("mc_verdict"), str):
         st.caption(f"⏱️ Time Machine ({int(row['mc_replays'])} simulazioni): {row['mc_verdict']}; "
                    f"BUY eseguito nel {row['mc_fill_rate']:.0f}% dei casi, rendimento medio {row['mc_avg_ret']:+.2f}%")
+    sz = sizing_from_config(row, load_config(), fractional=fractional)
+    if sz:
+        (st.success if sz["qty"] > 0 and row["score"] >= 20 else st.caption)(sizing_text(sz))
     if row["score"] < 20:
         st.caption("⚠️ Il segnale attuale non è d'acquisto: lo STOP serve se possiedi già il titolo, "
                    "il BUY come riferimento per un ingresso futuro.")

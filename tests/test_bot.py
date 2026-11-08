@@ -202,3 +202,15 @@ def test_hourly_check_runs_forward_test(bot, monkeypatch):
                         "pending": 0, "open": 0, "unfilled": 0, "closed": 0}})
     bot.hourly_check()
     assert sent and sent[0].startswith("✅ SOL/USDT: SELL raggiunto")
+
+
+def test_congresso_command(bot):
+    from test_congress import trades
+
+    bot.snap.congress = trades()
+    bot.handle_update(msg("/congresso pelosi"))
+    assert "Nancy Pelosi (coniuge) compra NVDA" in last(bot) and "Gottheimer" not in last(bot)
+    bot.handle_update(msg("🗳️ Congresso"))
+    assert "Gottheimer" in last(bot)
+    bot.handle_update(msg("/congresso ZZZZ"))
+    assert "Nessuna operazione per «ZZZZ»" in last(bot)

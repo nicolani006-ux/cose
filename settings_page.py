@@ -154,6 +154,28 @@ def section_alerts(cfg: dict) -> None:
             st.success("Salvato.")
 
 
+def section_money(cfg: dict) -> None:
+    st.header("💰 Capitale e rischio")
+    st.caption("Con il capitale impostato, ogni piano BUY/SELL/STOP dice anche quanto comprare: la quantità più "
+               "piccola tra perdita massima allo STOP, posizione massima, liquidità e ordine massimo "
+               "(regole della skill trader-budget). Valori nella valuta dei prezzi: $ per le azioni, USDT per le crypto.")
+    with st.form("money"):
+        a, b = st.columns(2)
+        cap = a.number_input("Capitale (0 = non calcolare)", min_value=0.0, value=float(cfg["capitale"]), step=100.0)
+        loss = b.number_input("Perdita massima per operazione (allo STOP)", min_value=0.0,
+                              value=float(cfg["rischio_max_operazione"]), step=5.0)
+        c, d, e = st.columns(3)
+        pos = c.number_input("Posizione massima (% del capitale)", 0.0, 100.0, float(cfg["posizione_max_pct"]), 5.0)
+        buf = d.number_input("Riserva di liquidità (%)", 0.0, 100.0, float(cfg["riserva_cassa_pct"]), 5.0)
+        mx = e.number_input("Ordine massimo (0 = nessun limite)", min_value=0.0, value=float(cfg["ordine_max"]),
+                            step=100.0)
+        if st.form_submit_button("💾 Salva"):
+            cfg.update(capitale=cap, rischio_max_operazione=loss, posizione_max_pct=pos, riserva_cassa_pct=buf,
+                       ordine_max=mx)
+            save_config(cfg)
+            st.success("Salvato.")
+
+
 def section_sources(cfg: dict) -> None:
     st.header("📡 Fonti e watchlist")
     with st.form("sources"):
@@ -162,11 +184,13 @@ def section_sources(cfg: dict) -> None:
         c13, c8 = st.columns(2)
         f13 = c13.checkbox("Analizza i 13F di BlackRock / Vanguard / State Street", cfg["controlla_13f"])
         f8 = c8.checkbox("Controlla le comunicazioni 8-K", cfg["controlla_8k"])
+        fc = st.checkbox("Segui le operazioni in borsa dei deputati USA (moduli del House Clerk)",
+                         cfg["controlla_congresso"])
         wl = st.text_area("Watchlist (ticker separati da virgola)", ", ".join(cfg["watchlist"]), height=120,
                           help="Titoli USA come su Yahoo Finance (es. BRK-B). Nomi e settori già noti per: "
                                + ", ".join(UNIVERSE))
         if st.form_submit_button("💾 Salva"):
-            cfg.update(sec_user_agent=ua.strip(), controlla_13f=f13, controlla_8k=f8,
+            cfg.update(sec_user_agent=ua.strip(), controlla_13f=f13, controlla_8k=f8, controlla_congresso=fc,
                        watchlist=[t.strip().upper() for t in wl.replace("\n", ",").split(",") if t.strip()])
             save_config(cfg)
             st.cache_resource.clear()
@@ -180,6 +204,8 @@ def main() -> None:
     section_bot(cfg)
     st.divider()
     section_alerts(cfg)
+    st.divider()
+    section_money(cfg)
     st.divider()
     section_sources(cfg)
     st.caption(f"Impostazioni, report e log in: `{DATA_DIR}`")

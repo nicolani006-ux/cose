@@ -14,9 +14,10 @@ import nav
 from charts import macd_chart, price_chart, rsi_chart
 from indicators import PLAN_HELP, add_indicators, overall_stats
 from stocks.analysis import STOCK_HORIZON_DAYS, macro_tone, score_stocks
-from ui_common import plan_metrics
 from stocks.config import REPORT_DIR, load_config, ticker_info
+from stocks.fundamentals import company_metrics, metrics_text
 from stocks.monitor import collect, load_snapshot, run_once, save_snapshot
+from ui_common import plan_metrics
 
 TITLE = "Stock Radar – Azioni & Istituzioni"
 
@@ -56,6 +57,19 @@ def _cfg_key(cfg: dict) -> str:
     return json.dumps({k: cfg[k] for k in keys} | {"watchlist": sorted(cfg["watchlist"])}, sort_keys=True)
 
 
+@st.cache_data(ttl=12 * 3600, show_spinner="Leggo i bilanci dalla SEC…")
+def fundamentals_for(ticker: str, sec_user_agent: str) -> dict | None:
+    if not sec_user_agent:
+        return {"errore": "imposta nome ed email per la SEC nelle Impostazioni"}
+    from stocks.config import CACHE_DIR
+    from stocks.sources import Sec
+
+    try:
+        return company_metrics(ticker, Sec(sec_user_agent, CACHE_DIR), CACHE_DIR)
+    except Exception as e:  # noqa: BLE001
+        return {"errore": f"{type(e).__name__}: {e}"[:200]}
+
+
 def header(snap, ranking: pd.DataFrame) -> None:
     tone = macro_tone(snap.news)
     c1, c2, c3, c4 = st.columns(4)
@@ -83,7 +97,7 @@ def tab_ranking(ranking: pd.DataFrame) -> None:
         view, hide_index=True, width="stretch", height=min(38 * (len(view) + 1), 900),
         column_order=["ticker", "name", "sector", "price", "chg_1d", "chg_1m", "spark", "score", "signal",
                       "buy", "sell", "stop", "probability", "bt_win_rate", "bt_trades",
-                      "s_tecnico", "s_analisti", "s_notizie", "s_istituzioni", "s_macro", "reasons"],
+                      "s_tecnico", "s_analisti", "s_notizie", "s_istituzioni", "s_macro", "s_congresso", "reasons"],
         column_config={
             "ticker": st.column_config.TextColumn("Titolo", pinned=True),
             "name": "Società", "sector": "Settore",
@@ -98,6 +112,7 @@ def tab_ranking(ranking: pd.DataFrame) -> None:
             "s_notizie": st.column_config.NumberColumn("Notizie", format="%+.0f"),
             "s_istituzioni": st.column_config.NumberColumn("13F", format="%+.0f"),
             "s_macro": st.column_config.NumberColumn("Fed", format="%+.0f"),
+            "s_congresso": st.column_config.NumberColumn("Congresso", format="%+.0f"),
             "reasons": st.column_config.TextColumn("Motivi", width="large"),
             "buy": st.column_config.NumberColumn("BUY $", format="%.2f", help=PLAN_HELP),
             "sell": st.column_config.NumberColumn("SELL $", format="%.2f", help=PLAN_HELP),
@@ -107,8 +122,9 @@ def tab_ranking(ranking: pd.DataFrame) -> None:
             "bt_trades": st.column_config.NumberColumn("Segnali", format="%d"),
         },
     )
-    st.caption("Punteggio = 35% analisi tecnica + 30% giudizi delle banche d'affari + 15% notizie "
-               "+ 10% acquisti/vendite di BlackRock, Vanguard, State Street (13F) + 10% tono della Fed sul settore.")
+    st.caption("Punteggio = 35% analisi tecnica + 30% giudizi delle banche d'affari + 10% notizie "
+               "+ 10% acquisti/vendite di BlackRock, Vanguard, State Street (13F) + 10% tono della Fed sul settore "
+               "+ 5% operazioni dei deputati USA.")
     buf = io.BytesIO()
     view.drop(columns=["spark"]).to_excel(buf, index=False, engine="openpyxl")
     st.download_button("📥 Scarica Excel", buf.getvalue(), f"stock_radar_{datetime.now():%Y%m%d_%H%M}.xlsx")
@@ -122,12 +138,31 @@ def tab_detail(snap, ranking: pd.DataFrame) -> None:
     c2.metric("Punteggio", f"{row['score']:+.0f}", delta=row["signal"], delta_color="off", delta_arrow="off")
     c3.metric("Settore", row["sector"])
     st.info("**Motivi:** " + row["reasons"])
-    plan_metrics(row, unit="giorni", fmt=lambda v: f"{v:,.2f} $")
+    plan_metrics(row, unit="giorni", fmt=lambda v: f"{v:,.2f} $", fractional=False)
     df = add_indicators(snap.prices[t])
     st.altair_chart(price_chart(df, t, {"BUY": row["buy"], "SELL": row["sell"], "STOP": row["stop"]}), width="stretch")
     a, b = st.columns(2)
     a.altair_chart(rsi_chart(df), width="stretch")
     b.altair_chart(macd_chart(df), width="stretch")
+
+    st.subheader("Bilanci (SEC)")
+    m = fundamentals_for(t, load_config().get("sec_user_agent", ""))
+    if m and "errore" not in m:
+        st.markdown(metrics_text(m))
+        q = pd.DataFrame(m.get("quarters") or [])
+        if not q.empty:
+            st.dataframe(q, hide_index=True, width="stretch", column_config={
+                "fiscal": "Trimestre", "end": "Fine", "form": "Modulo", "derived": "Ricavato",
+                "revenue": st.column_config.NumberColumn("Ricavi $", format="compact"),
+                "revenue_yoy": st.column_config.NumberColumn("Ricavi a/a", format="%+.1f%%"),
+                "eps_diluted": st.column_config.NumberColumn("Utile per azione $", format="%.2f"),
+                "eps_yoy": st.column_config.NumberColumn("EPS a/a", format="%+.1f%%"),
+                "net_margin": st.column_config.NumberColumn("Margine netto", format="%.1f%%")})
+        st.caption("Calcoli della skill trader-analyst (day-trader-skill, MIT) sui dati XBRL della SEC.")
+    elif m:
+        st.caption(f"Bilanci non disponibili: {m['errore']}")
+    else:
+        st.caption("Bilanci non disponibili per questo titolo (per es. società estera o ETF).")
 
     r = snap.ratings[snap.ratings["ticker"] == t] if not snap.ratings.empty else pd.DataFrame()
     st.subheader("Giudizi delle banche")
@@ -179,6 +214,39 @@ def tab_analysts(snap) -> None:
                        "pt_now": st.column_config.NumberColumn("Target", format="%.0f $")},
     )
     st.caption("Azione: up = rialzo del giudizio, down = ribasso, init = inizio copertura, main/reit = conferma.")
+
+
+def tab_congress(snap, cfg: dict) -> None:
+    trades = getattr(snap, "congress", pd.DataFrame())
+    st.caption("Operazioni in borsa che i deputati USA devono dichiarare entro 45 giorni (STOCK Act), dai "
+               "moduli pubblici del House Clerk. Lettore: skill trader-pelosi di day-trader-skill (MIT).")
+    if trades.empty:
+        st.info("Nessuna operazione dichiarata negli ultimi 45 giorni, o fonte non raggiungibile.")
+        return
+    c1, c2 = st.columns([1, 2])
+    only_mine = c1.checkbox("Solo titoli della mia watchlist", value=False)
+    who = c2.text_input("Cerca deputato o titolo", placeholder="es. Pelosi, NVDA")
+    view = trades
+    if only_mine:
+        view = view[view["ticker"].isin(cfg["watchlist"])]
+    if who.strip():
+        q = who.strip().lower()
+        view = view[view["member"].str.lower().str.contains(q, regex=False)
+                    | view["ticker"].fillna("").str.lower().eq(q)]
+    view = view.assign(verso=view["type"].map({"P": "🟢 acquisto", "S": "🔴 vendita",
+                                                "S (partial)": "🟠 vendita parziale", "E": "scambio"}))
+    st.dataframe(view, hide_index=True, width="stretch",
+                 column_order=["filed", "member", "district", "ticker", "verso", "amount", "date", "asset",
+                               "days_to_disclose", "url"],
+                 column_config={"filed": "Dichiarata", "member": "Deputato", "district": "Distretto",
+                                "ticker": "Titolo", "verso": "Operazione", "amount": "Importo", "date": "Data",
+                                "asset": "Attività", "days_to_disclose": st.column_config.NumberColumn("Giorni", format="%d"),
+                                "url": st.column_config.LinkColumn("PDF")})
+    top = trades[trades["ticker"].notna()].groupby("ticker")["type"].agg(
+        acquisti=lambda x: (x == "P").sum(), vendite=lambda x: x.astype(str).str.startswith("S").sum())
+    top = top.assign(saldo=top["acquisti"] - top["vendite"]).sort_values("saldo", ascending=False)
+    st.subheader("Titoli più comprati e venduti")
+    st.dataframe(top.head(15), width="stretch")
 
 
 def tab_sec(snap) -> None:
@@ -240,7 +308,7 @@ def main() -> None:
             st.write(snap.errors)
 
     tabs = st.tabs(["🏆 Classifica", "📈 Analisi titolo", "🏛️ Istituzioni & politica", "🏦 Banche d'affari",
-                    "🏢 SEC & 13F", "🔔 Avvisi"])
+                    "🏢 SEC & 13F", "🗳️ Congresso USA", "🔔 Avvisi"])
     if ranking.empty:
         for tab in tabs[:2]:
             tab.error("Prezzi non disponibili: controlla la connessione a Internet.")
@@ -257,6 +325,8 @@ def main() -> None:
     with tabs[4]:
         tab_sec(snap)
     with tabs[5]:
+        tab_congress(snap, cfg)
+    with tabs[6]:
         tab_alerts(cfg, snap)
 
 

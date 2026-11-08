@@ -204,7 +204,8 @@ def test_collect_survives_failing_sources(monkeypatch):
     monkeypatch.setattr(sources, "fetch_prices", lambda wl: {"NVDA": fk.prices(0.002)})
     monkeypatch.setattr(sources, "fetch_ratings", lambda wl, firms: fk.ratings([]))
     monkeypatch.setattr(sources, "Sec", FakeSec)
-    snap = monitor.collect({**CFG, "sec_user_agent": "", "controlla_13f": True, "controlla_8k": True})
+    snap = monitor.collect({**CFG, "sec_user_agent": "", "controlla_13f": True, "controlla_8k": True,
+                            "controlla_congresso": False})
     assert "NVDA" in snap.prices and snap.news.empty
     assert any("SEC 8-K" in e for e in snap.errors) and any("13F" in e for e in snap.errors)
     assert not analysis.score_stocks(snap, CFG["watchlist"]).empty
@@ -275,7 +276,7 @@ def test_stock_page_renders(monkeypatch):
     at = AppTest.from_function(page, default_timeout=60)
     at.run()
     assert not at.exception, at.exception
-    assert len(at.tabs) == 6
+    assert len(at.tabs) == 7
     assert at.dataframe[0].value.iloc[0]["ticker"] == "NVDA"
     assert any("Goldman Sachs" in str(d.value.to_dict()) for d in at.dataframe)
 
@@ -306,7 +307,8 @@ def test_settings_page_opens_without_loading_data(monkeypatch):
     at = AppTest.from_function(page, default_timeout=30)
     at.run()
     assert not at.exception, at.exception
-    assert [h.value for h in at.header] == ["🤖 Bot Telegram", "🔔 Avvisi", "📡 Fonti e watchlist"]
+    assert [h.value for h in at.header] == ["🤖 Bot Telegram", "🔔 Avvisi", "💰 Capitale e rischio",
+                                            "📡 Fonti e watchlist"]
     at.text_input[0].input("123:ABC")
     at.button[0].click().run()  # Salva token
     assert monitor.load_config()["telegram_token"] == "123:ABC"
@@ -330,7 +332,8 @@ def test_collect_reports_progress_and_times_out(monkeypatch):
     monkeypatch.setattr(sources, "fetch_prices", lambda wl: {"NVDA": fk.prices(0.002)})
     monkeypatch.setattr(sources, "fetch_ratings", slow_ratings)
     seen = []
-    snap = monitor.collect({**CFG, "sec_user_agent": "x", "controlla_13f": False, "controlla_8k": False},
+    snap = monitor.collect({**CFG, "sec_user_agent": "x", "controlla_13f": False, "controlla_8k": False,
+                            "controlla_congresso": False},
                            progress=lambda label, ok: seen.append((label, ok)), timeout=1)
     release.set()
     assert ("Prezzi", True) in seen and ("Notizie e comunicati", True) in seen

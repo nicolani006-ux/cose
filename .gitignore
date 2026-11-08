@@ -7,3 +7,6 @@ dist/
 *.dmg
 *.exe
 .pytest_cache/
+
+# Dati personali di trading delle skill day-trader (piani, ordini, portafoglio): non pubblicarli
+trader/
