@@ -26,10 +26,18 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-build.txt
       - run: pyinstaller --noconfirm crypto_radar.spec
+      - name: Aggiungi allo zip il codice sorgente e la guida
+        shell: bash
+        run: |
+          git archive --format=tar --prefix="Codice sorgente/" HEAD | tar -x -C dist
+          cp LEGGIMI.txt dist/
       - uses: actions/upload-artifact@v4
         with:
           name: Crypto-Radar-Ultimate-Windows
-          path: dist/Crypto Radar Ultimate.exe
+          path: |
+            dist/Crypto Radar Ultimate.exe
+            dist/LEGGIMI.txt
+            dist/Codice sorgente
 
   macos:
     needs: test
@@ -42,7 +50,14 @@ jobs:
       - run: pip install -r requirements-build.txt
       - run: pyinstaller --noconfirm crypto_radar.spec
       - run: hdiutil create -volname "Crypto Radar Ultimate" -srcfolder "dist/Crypto Radar Ultimate.app" -ov -format UDZO "dist/Crypto Radar Ultimate.dmg"
+      - name: Aggiungi allo zip il codice sorgente e la guida
+        run: |
+          git archive --format=tar --prefix="Codice sorgente/" HEAD | tar -x -C dist
+          cp LEGGIMI.txt dist/
       - uses: actions/upload-artifact@v4
         with:
           name: Crypto-Radar-Ultimate-macOS
-          path: dist/Crypto Radar Ultimate.dmg
+          path: |
+            dist/Crypto Radar Ultimate.dmg
+            dist/LEGGIMI.txt
+            dist/Codice sorgente

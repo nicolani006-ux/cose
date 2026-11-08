@@ -1,0 +1,28 @@
+CRYPTO RADAR ULTIMATE – contenuto dello zip
+===========================================
+
+Crypto Radar Ultimate.exe   (su Mac: Crypto Radar Ultimate.dmg)
+    L'app pronta da usare: doppio clic per aprirla. Non serve installare altro.
+
+Codice sorgente\
+    Tutti i file del programma, gli stessi del repository GitHub nicolani006-ux/cose:
+
+    app.py, nav.py, launcher.py ........ avvio dell'app e menu (Crypto, Azioni, Test, Impostazioni)
+    trend_crypto.py, crypto_core.py .... sezione Crypto
+    stock_radar.py, stocks\ ............ sezione Azioni: fonti, punteggio, avvisi, bot Telegram,
+                                         Congresso USA, bilanci SEC
+    previsioni.py, test_page.py,
+    excel_previsioni.py ................ test delle previsioni e file Excel
+    indicators.py, charts.py,
+    ui_common.py ....................... indicatori, piano BUY/SELL/STOP, Time Machine, grafici
+    settings_page.py ................... pagina Impostazioni & Bot
+    bot.py, monitor.py ................. bot Telegram e controllo orario da riga di comando
+    .claude\skills\ .................... skill di Claude Code (11 di day-trading + excel-previsioni)
+    tests\ ............................. test automatici
+    README.md .......................... guida completa
+
+    Per avviarlo dal codice (serve Python 3.12): doppio clic su run_windows.bat
+    Per ricreare l'eseguibile: doppio clic su build_windows.bat
+
+I tuoi dati (impostazioni, report, Excel del test, registro del bot) non sono qui ma in
+C:\Users\<tuo nome>\RadarUltimate  (Windows + R, scrivi %USERPROFILE%\RadarUltimate, Invio).
