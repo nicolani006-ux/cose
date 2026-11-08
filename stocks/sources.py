@@ -22,11 +22,29 @@ BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) RadarUltimate/1.0"
 SEC_FALLBACK_UA = "RadarUltimate (configura-email-in-impostazioni@example.com)"
 
 
-def http_get(url: str, user_agent: str = BROWSER_UA, timeout: int = 20, session=None) -> requests.Response:
+RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def http_get(url: str, user_agent: str = BROWSER_UA, timeout: int = 20, session=None, retries: int = 3,
+             pause: float = 1.5) -> requests.Response:
+    """GET con nuovi tentativi (attesa crescente) su errori di rete, limite di richieste (429) ed errori 5xx."""
     s = session or requests
-    resp = s.get(url, headers={"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"}, timeout=timeout)
-    resp.raise_for_status()
-    return resp
+    for attempt in range(retries):
+        try:
+            resp = s.get(url, headers={"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"}, timeout=timeout)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == retries - 1:
+                raise
+        else:
+            if resp.status_code not in RETRY_STATUS or attempt == retries - 1:
+                resp.raise_for_status()
+                return resp
+            wait = resp.headers.get("Retry-After", "")
+            if wait.isdigit():
+                time.sleep(min(int(wait), 30))
+                continue
+        time.sleep(pause * 2 ** attempt)
+    raise RuntimeError("non raggiungibile")  # non si arriva qui
 
 
 # --------------------------------------------------------------------------- #
@@ -80,13 +98,44 @@ def fetch_feed(url: str, group: str, kind: str, session=None) -> list[dict]:
 # Prezzi e giudizi degli analisti (Yahoo Finance tramite yfinance)
 # --------------------------------------------------------------------------- #
 
+YAHOO_CHART_HOSTS = ("query2.finance.yahoo.com", "query1.finance.yahoo.com")
+
+
+def yahoo_chart(ticker: str, period: str = "2y", session=None) -> pd.DataFrame | None:
+    """Candele giornaliere (rettificate per dividendi e frazionamenti) dall'API dei grafici di Yahoo.
+    Riserva per quando la libreria yfinance non funziona (succede quando Yahoo cambia le pagine)."""
+    for host in YAHOO_CHART_HOSTS:
+        try:
+            data = http_get(f"https://{host}/v8/finance/chart/{ticker}?range={period}&interval=1d&events=div,splits",
+                            session=session, retries=2).json()
+            res = data["chart"]["result"][0]
+            q = res["indicators"]["quote"][0]
+            adj = (res["indicators"].get("adjclose") or [{}])[0].get("adjclose") or q["close"]
+        except Exception:  # noqa: BLE001 - si prova l'altro server
+            continue
+        df = pd.DataFrame({"time": pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert("America/New_York"),
+                           "open": q["open"], "high": q["high"], "low": q["low"], "close": q["close"],
+                           "volume": q["volume"], "adj": adj}).dropna()
+        if df.empty:
+            return None
+        k = df["adj"] / df["close"]
+        for c in ("open", "high", "low", "close"):
+            df[c] = df[c] * k
+        df["time"] = df["time"].dt.normalize()
+        return df.drop(columns="adj").reset_index(drop=True)
+    return None
+
+
 def fetch_prices(tickers: list[str], period: str = "2y") -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
     def one(t):
-        h = yf.Ticker(t).history(period=period, interval="1d", auto_adjust=True)
+        try:
+            h = yf.Ticker(t).history(period=period, interval="1d", auto_adjust=True)
+        except Exception:  # noqa: BLE001 - libreria rotta o Yahoo che rifiuta: si usa l'API dei grafici
+            h = None
         if h is None or h.empty:
-            return t, None
+            return t, yahoo_chart(t, period)
         df = h.reset_index().rename(columns={
             "Date": "time", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume",
         })
