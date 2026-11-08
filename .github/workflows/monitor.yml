@@ -46,7 +46,7 @@ jobs:
       - run: pip install -r requirements-monitor.txt
       - if: ${{ vars.TEST_SU_GITHUB == 'true' }}
         run: pip install -r requirements-previsioni.txt
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .radar
           key: monitor-state-${{ github.run_id }}
