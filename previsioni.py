@@ -449,7 +449,8 @@ def _default_scan(exchange: str, quote: str, n: int, timeframe: str) -> pd.DataF
 def _default_fetch(exchange: str, symbol: str, timeframe: str, since_ms: int) -> list:
     import crypto_core
 
-    return crypto_core.get_exchange(exchange).fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=1000)
+    rows = crypto_core.get_exchange(exchange).fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=1000)
+    return crypto_core.drop_open_candle(rows, timeframe)  # solo candele chiuse, come per i segnali
 
 
 def run(cfg: dict, scan=_default_scan, fetch=_default_fetch) -> dict:

@@ -38,18 +38,18 @@ def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
     close = df["close"]
-    df["ema20"] = ema(close, 20)
-    df["ema50"] = ema(close, 50)
-    df["ema200"] = ema(close, 200)
-    df["rsi"] = rsi(close)
-    df["macd"], df["macd_signal"], df["macd_hist"] = macd(close)
+    line, sig, hist = macd(close)
     mid = close.rolling(20).mean()
     std = close.rolling(20).std()
-    df["bb_mid"], df["bb_up"], df["bb_low"] = mid, mid + 2 * std, mid - 2 * std
-    df["atr"] = atr(df)
-    return df
+    # tutte le colonne in un colpo solo: aggiungerle una per volta costa più del calcolo stesso
+    cols = {
+        "ema20": ema(close, 20), "ema50": ema(close, 50), "ema200": ema(close, 200), "rsi": rsi(close),
+        "macd": line, "macd_signal": sig, "macd_hist": hist,
+        "bb_mid": mid, "bb_up": mid + 2 * std, "bb_low": mid - 2 * std, "atr": atr(df),
+    }
+    return pd.concat([df.drop(columns=[c for c in cols if c in df.columns]), pd.DataFrame(cols, index=df.index)],
+                     axis=1)
 
 
 def _crossed(a: pd.Series, b: pd.Series, lookback: int) -> int:
@@ -67,9 +67,14 @@ def _crossed(a: pd.Series, b: pd.Series, lookback: int) -> int:
     return 0
 
 
-def analyze(df: pd.DataFrame) -> dict:
+def _with_indicators(df: pd.DataFrame, d: pd.DataFrame | None) -> pd.DataFrame:
+    """`d` = indicatori già calcolati per `df` (si evita di ricalcolarli più volte sulla stessa serie)."""
+    return add_indicators(df) if d is None else d
+
+
+def analyze(df: pd.DataFrame, d: pd.DataFrame | None = None) -> dict:
     """Calcola indicatori, punteggio di trend (-100..100) e segnali per una serie OHLCV."""
-    df = add_indicators(df)
+    df = _with_indicators(df, d)
     last = df.iloc[-1]
     close = float(last["close"])
     has_ema200 = len(df) >= 200
@@ -160,10 +165,10 @@ def signal_label(score: float) -> str:
 # Punteggio candela per candela, piano BUY / SELL / STOP e statistica storica
 # --------------------------------------------------------------------------- #
 
-def score_series(df: pd.DataFrame) -> pd.Series:
+def score_series(df: pd.DataFrame, d: pd.DataFrame | None = None) -> pd.Series:
     """Lo stesso punteggio di `analyze`, calcolato per ogni candela usando solo i dati
     disponibili fino a quella candela (serve per la statistica storica)."""
-    d = add_indicators(df).reset_index(drop=True)
+    d = _with_indicators(df, d).reset_index(drop=True)
     n = len(d)
     close = d["close"]
     s = np.where(close > d["ema20"], 15.0, -15.0)
@@ -207,9 +212,9 @@ PLAN_FILL_BARS = 5       # quante candele resta valido l'ordine di acquisto
 HORIZON_BARS = {"15m": 96, "1h": 48, "4h": 30, "1d": 20}
 
 
-def trade_plan(df: pd.DataFrame) -> dict:
+def trade_plan(df: pd.DataFrame, d: pd.DataFrame | None = None) -> dict:
     """Prezzi suggeriti: BUY (acquisto con ordine limite), SELL (obiettivo), STOP (vendi se scende sotto)."""
-    d = add_indicators(df)
+    d = _with_indicators(df, d)
     last = d.iloc[-1]
     close, a = float(last["close"]), float(last["atr"]) if pd.notna(last["atr"]) else np.nan
     if not np.isfinite(a) or a <= 0:
@@ -260,14 +265,15 @@ def simulate_trade(o, h, lo, c, t: int, buy: float, stop: float, target: float, 
     return out
 
 
-def backtest_plan(df: pd.DataFrame, horizon: int = 20, threshold: float = 20) -> dict:
+def backtest_plan(df: pd.DataFrame, horizon: int = 20, threshold: float = 20,
+                  d: pd.DataFrame | None = None) -> dict:
     """Applica il piano a tutti i segnali d'acquisto passati della serie.
 
     Segnale = il punteggio supera `threshold`. Si piazza un ordine BUY (valido
     PLAN_FILL_BARS candele); se eseguito, l'operazione finisce al primo tra SELL
     (vinta), STOP (persa) o dopo `horizon` candele (vedi `simulate_trade`)."""
-    d = add_indicators(df).reset_index(drop=True)
-    sc = score_series(df).to_numpy()
+    d = _with_indicators(df, d).reset_index(drop=True)
+    sc = score_series(df, d).to_numpy()
     o, h, lo, c, a = (d[k].to_numpy() for k in ("open", "high", "low", "close", "atr"))
     n = len(d)
     wins = losses = timeouts = signals = 0
@@ -306,10 +312,11 @@ def backtest_plan(df: pd.DataFrame, horizon: int = 20, threshold: float = 20) ->
     }
 
 
-def plan_and_stats(df: pd.DataFrame, horizon: int = 20) -> dict:
+def plan_and_stats(df: pd.DataFrame, horizon: int = 20, d: pd.DataFrame | None = None) -> dict:
     """Piano BUY/SELL/STOP + statistica storica + Time Machine (Monte Carlo) + probabilità combinata."""
-    plan = trade_plan(df)
-    out = {**plan, **backtest_plan(df, horizon=horizon)}
+    d = _with_indicators(df, d)
+    plan = trade_plan(df, d)
+    out = {**plan, **backtest_plan(df, horizon=horizon, d=d)}
     if np.isfinite(plan["buy"]):
         mc = monte_carlo_plan(df, plan["buy"], plan["stop"], plan["sell"], horizon)
         if mc.get("mc_replays"):

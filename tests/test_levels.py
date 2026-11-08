@@ -58,7 +58,7 @@ def test_backtest_stop_and_target_logic(monkeypatch):
         closes = np.r_[np.full(71, 100.0), after]
         df = _df(closes, spread=0.005)
         signal = pd.Series(np.where(np.arange(len(df)) == 70, 50.0, 0.0), index=df.index)
-        monkeypatch.setattr(ind, "score_series", lambda d: signal)  # un solo segnale, alla candela 70
+        monkeypatch.setattr(ind, "score_series", lambda df, d=None: signal)  # un solo segnale, alla candela 70
         return ind.backtest_plan(df, horizon=horizon)
 
     # ATR ~1: BUY ~99.5 (eseguito alla candela 71), STOP ~98, SELL ~102.5
