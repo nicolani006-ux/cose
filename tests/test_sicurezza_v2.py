@@ -50,3 +50,17 @@ def test_find_chat_ids_filters_by_code():
             return R()
 
     assert notify.find_chat_ids("T", session=S(), code="abcd1234") == ["1 (Io)"]
+
+
+def test_env_secrets_are_never_written_to_disk(monkeypatch):
+    monkeypatch.setenv("RADAR_TELEGRAM_TOKEN", "123:DA-GITHUB")
+    monkeypatch.setenv("RADAR_TELEGRAM_CHAT_ID", "777")
+    cfg = load_config()
+    cfg["watchlist"] = ["AAPL"]  # es. /aggiungi dal bot su GitHub Actions
+    save_config(cfg)
+    raw = CONFIG_FILE.read_text(encoding="utf-8")
+    assert "DA-GITHUB" not in raw and "777" not in raw
+    assert load_config()["telegram_token"] == "123:DA-GITHUB"  # in memoria resta quello dei secret
+    monkeypatch.delenv("RADAR_TELEGRAM_TOKEN")
+    monkeypatch.delenv("RADAR_TELEGRAM_CHAT_ID")
+    save_config(dict(DEFAULT_CONFIG))

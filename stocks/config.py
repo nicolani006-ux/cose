@@ -174,6 +174,12 @@ def load_config() -> dict:
 def save_config(cfg: dict) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     data = {**cfg, "telegram_token": secret.protect(cfg.get("telegram_token") or "")}  # token cifrato su disco
+    # Valori arrivati dalle variabili d'ambiente (secret di GitHub Actions): mai scritti su disco, perché la
+    # cartella dei dati finisce nella cache di Actions, leggibile anche dalle pull request di una repo pubblica.
+    for key, env in (("telegram_token", "RADAR_TELEGRAM_TOKEN"), ("telegram_chat_id", "RADAR_TELEGRAM_CHAT_ID"),
+                     ("sec_user_agent", "RADAR_SEC_USER_AGENT")):
+        if os.environ.get(env):
+            data[key] = ""
     tmp = CONFIG_FILE.with_suffix(".tmp")  # scrittura atomica: un arresto a metà non cancella le impostazioni
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(CONFIG_FILE)
