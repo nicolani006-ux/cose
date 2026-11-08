@@ -1,5 +1,6 @@
-# Aggiornamenti controllati delle librerie: Dependabot apre una pull request alla settimana con le nuove
-# versioni in constraints.txt; la CI (workflow Build) esegue i test e l'autotest dell'eseguibile prima del merge.
+# Aggiornamenti controllati delle librerie: Dependabot apre una pull request per libreria con la nuova
+# versione in constraints.txt; la CI (workflow Build) esegue i test e l'autotest dell'eseguibile.
+# Una PR alla volta: se un aggiornamento è incompatibile fallisce solo quello, non tutti gli altri.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -7,9 +8,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    groups:
-      librerie:
-        patterns: ["*"]
+    ignore:
+      # streamlit-desktop-app (finestra dell'app) funziona solo con pywebview 5.x
+      - dependency-name: pywebview
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
