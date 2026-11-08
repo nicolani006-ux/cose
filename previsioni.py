@@ -27,6 +27,9 @@ STAKE_EUR = 100    # importo simulato per ogni operazione
 PRIOR_K = 5        # peso della media generale nella probabilità (pochi dati storici = stima prudente)
 BUY_THRESHOLD = 20
 MIN_MARGIN_PCT = 0.5  # sotto questo margine il guadagno sparirebbe nelle commissioni: non si registra
+# Criterio per giudicare il modello: servono almeno MIN_CLOSED_VERDICT operazioni chiuse; c'è un vantaggio
+# reale solo se l'intervallo di confidenza al 95% del guadagno netto medio (commissioni comprese) sta sopra zero.
+MIN_CLOSED_VERDICT = 100
 
 FINAL = {"unfilled", "win", "loss", "timeout"}
 CLOSED = {"win", "loss", "timeout"}
@@ -193,11 +196,32 @@ def compute_stats(journal: list[dict]) -> dict:
             worst=closed.loc[closed["net_pct"].idxmin(), ["symbol", "net_pct"]].tolist(),
             hours_mean=closed["hours"].mean(), mfe_mean=closed["mfe_pct"].mean(), mae_mean=closed["mae_pct"].mean(),
             max_drawdown_eur=float((curve - curve.cummax().clip(lower=0)).min()),
+            **verdict(closed["net_pct"]),
         )
     d = df["chg_horizon_pct"].dropna()
     if not d.empty:
         s.update(direction_n=len(d), direction_up=(d > 0).mean() * 100, direction_mean=d.mean())
     return s
+
+
+def verdict(net_pct: pd.Series, min_closed: int = MIN_CLOSED_VERDICT) -> dict:
+    """Il modello ha un vantaggio reale? Intervallo di confidenza al 95% del guadagno netto medio."""
+    x = pd.to_numeric(net_pct, errors="coerce").dropna().to_numpy()
+    n = len(x)
+    mean = float(x.mean()) if n else np.nan
+    se = float(x.std(ddof=1) / np.sqrt(n)) if n > 1 else np.nan
+    lo, hi = mean - 1.96 * se, mean + 1.96 * se
+    rng = f"tra {lo:+.2f}% e {hi:+.2f}%" if np.isfinite(se) else "non calcolabile"
+    if n < min_closed:
+        text = (f"⏳ Dati insufficienti: {n}/{min_closed} operazioni chiuse. Guadagno netto medio finora "
+                f"{mean:+.2f}% (intervallo 95% {rng})")
+    elif lo > 0:
+        text = f"✅ Vantaggio reale: guadagno netto medio {mean:+.2f}% per operazione (intervallo 95% {rng})"
+    elif hi < 0:
+        text = f"❌ Nessun vantaggio: perdita netta media {mean:+.2f}% per operazione (intervallo 95% {rng})"
+    else:
+        text = f"⚖️ Non distinguibile dal caso: guadagno netto medio {mean:+.2f}% (intervallo 95% {rng})"
+    return {"verdict": text, "verdict_lo": lo, "verdict_hi": hi, "verdict_ready": n >= min_closed}
 
 
 def _brier_parts(closed: pd.DataFrame, win: pd.Series) -> dict:
@@ -224,6 +248,7 @@ def summary_text(s: dict) -> str:
             f"Margine ipotizzato medio +{s['margin_mean']:.2f}% · guadagno reale medio {s['ret_mean']:+.2f}% "
             f"(netto commissioni {s['net_mean']:+.2f}%)",
             f"Con {STAKE_EUR}€ per operazione: {s['total_eur']:+.2f}€ su {s['closed']} operazioni",
+            s["verdict"],
         ]
     if s.get("direction_n"):
         lines.append(f"Prezzo salito dopo l'orizzonte nel {s['direction_up']:.0f}% delle previsioni ({s['direction_n']})")
@@ -351,6 +376,9 @@ def write_excel(journal: list[dict], path=EXCEL_FILE) -> None:
         put("✅ Chiuse al SELL", s["wins"], "0")
         put("🛑 Chiuse allo STOP", s["losses"], "0")
         put("⏱️ Scadute", s["timeouts"], "0", "Né SELL né STOP entro l'orizzonte: chiuse al prezzo di quel momento")
+        put("Verdetto sul modello", s["verdict"], None,
+            f"Servono almeno {MIN_CLOSED_VERDICT} operazioni chiuse; c'è un vantaggio solo se tutto l'intervallo di "
+            "confidenza al 95% del guadagno netto medio è sopra zero")
         put("Successo reale (SELL prima dello STOP)", _pct(s["win_rate"]), "0.0%")
         put("Probabilità media ipotizzata", _pct(s["prob_mean"]), "0.0%",
             "Se è vicina al successo reale, le probabilità indicate sono affidabili")

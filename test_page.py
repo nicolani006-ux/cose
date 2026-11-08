@@ -52,6 +52,8 @@ def main() -> None:
         c[3].metric("Guadagno medio netto", f"{s['net_mean']:+.2f}%", delta=f"ipotizzato +{s['margin_mean']:.2f}%",
                     delta_color="off", delta_arrow="off", border=True)
         c[4].metric(f"Con {pv.STAKE_EUR}€ a operazione", f"{s['total_eur']:+.2f} €", border=True)
+        box = st.success if s["verdict"].startswith("✅") else st.error if s["verdict"].startswith("❌") else st.info
+        box("**Il modello funziona?** " + s["verdict"])
     st.text(pv.summary_text(s))
 
     df = pv.to_frame(journal).sort_values("created", ascending=False)

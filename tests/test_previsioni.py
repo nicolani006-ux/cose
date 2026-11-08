@@ -166,3 +166,17 @@ def test_run_survives_unreachable_exchange():
 
     res = pv.run({}, scan=down, fetch=down)
     assert res["error"].startswith("ConnectionError") and pv.EXCEL_FILE.exists()
+
+
+def test_verdict_needs_enough_trades_and_a_positive_interval():
+    import numpy as np
+
+    few = pv.verdict(pd.Series([1.0, 2.0, -0.5]))
+    assert not few["verdict_ready"] and few["verdict"].startswith("⏳") and "3/100" in few["verdict"]
+    rng = np.random.default_rng(0)
+    good = pv.verdict(pd.Series(rng.normal(0.8, 2.0, 400)))
+    assert good["verdict_ready"] and good["verdict"].startswith("✅") and good["verdict_lo"] > 0
+    bad = pv.verdict(pd.Series(rng.normal(-0.8, 2.0, 400)))
+    assert bad["verdict"].startswith("❌")
+    coin = pv.verdict(pd.Series(rng.normal(0.0, 2.0, 400)))
+    assert coin["verdict"].startswith("⚖️")
