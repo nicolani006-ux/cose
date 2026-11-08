@@ -126,6 +126,8 @@ DEFAULT_CONFIG: dict = {
     # La SEC richiede un User-Agent con nome ed email: https://www.sec.gov/os/accessing-edgar-data
     "sec_user_agent": "",
     "livello_minimo_avviso": "media",  # "info", "media" o "alta"
+    "ore_silenzio": "",                # es. "23-7": di notte arrivano solo gli avvisi di livello alta
+    "max_avvisi_messaggio": 10,        # avvisi elencati in ogni messaggio (gli altri restano nell'app)
     "invia_riepilogo_sempre": False,
     "controlla_13f": True,
     "controlla_8k": True,
@@ -135,7 +137,7 @@ DEFAULT_CONFIG: dict = {
     "rischio_max_operazione": 50,   # perdita massima accettata allo STOP per ogni operazione
     "posizione_max_pct": 75,        # massimo del capitale in un solo titolo
     "riserva_cassa_pct": 10,        # liquidità sempre lasciata da parte
-    "ordine_max": 0,                # spesa massima per ordine (0 = nessun limite)  # operazioni dichiarate dai deputati USA (House Clerk, STOCK Act)
+    "ordine_max": 0,                # spesa massima per ordine (0 = nessun limite)
     # Test delle previsioni crypto sui prezzi reali (file report/test_previsioni.xlsx)
     "test_previsioni": True,
     "test_exchange": "binance",

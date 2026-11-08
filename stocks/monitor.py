@@ -7,6 +7,7 @@ Uso:  python monitor.py              (un controllo, poi esce: adatto all'Utilit�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pickle
 import re
@@ -43,6 +44,10 @@ NEGATIVE_8K = {"1.03", "2.06", "3.01", "4.01", "4.02"}
 MONETARY = re.compile(r"FOMC|monetary policy|federal funds|interest rate|target range|policy rate|"
                       r"key ECB interest|beige book", re.I)
 MAX_AGE = pd.Timedelta(days=3)
+# Notizie generiche (Google News): avviso "media" solo se citano un titolo della watchlist con un tono netto.
+# Prima bastava 0,34 o un tono forte anche senza titolo: il 95% degli avvisi inviati erano notizie generiche.
+NEWS_ALERT_SENTIMENT = 0.5
+STATE_SCHEMA = 2  # 2 = chiave delle notizie ricavata dal titolo (la stessa notizia arriva da più ricerche)
 NEWS_COLUMNS = ["id", "group", "kind", "publisher", "title", "summary", "link", "published"]
 
 
@@ -204,12 +209,35 @@ def _fresh(ts, now) -> bool:
     return ts is None or pd.isna(ts) or now - ts <= MAX_AGE
 
 
+def news_key(title: str) -> str:
+    """Chiave di una notizia dal titolo normalizzato: lo stesso articolo trovato da ricerche diverse
+    (link diversi di Google News) è un solo avviso."""
+    norm = " ".join(re.sub(r"[^0-9a-zà-ÿ]+", " ", str(title).lower()).split())
+    return "news:" + hashlib.sha1(norm.encode("utf-8")).hexdigest()[:16]
+
+
+def in_quiet_hours(spec: str, hour: int) -> bool:
+    """`spec` tipo "23-7" (dalle 23 alle 7): in quelle ore si inviano solo gli avvisi di livello alta."""
+    m = re.fullmatch(r"\s*(\d{1,2})\s*-\s*(\d{1,2})\s*", spec or "")
+    if not m:
+        return False
+    start, end = int(m.group(1)) % 24, int(m.group(2)) % 24
+    if start == end:
+        return False
+    return start <= hour < end if start < end else (hour >= start or hour < end)
+
+
 def build_alerts(snap: Snapshot, ranking: pd.DataFrame, state: dict) -> list[dict]:
     now = snap.fetched_at
     alerts = []
+    titles = set()
     for r in snap.news.itertuples():
         if not _fresh(r.published, now):
             continue
+        key = news_key(r.title)
+        if key in titles:  # stessa notizia da un'altra fonte o ricerca
+            continue
+        titles.add(key)
         tickers = list(r.tickers)
         if r.kind != "notizie":
             if r.kind == "regolatore":
@@ -219,13 +247,12 @@ def build_alerts(snap: Snapshot, ranking: pd.DataFrame, state: dict) -> list[dic
             tone = ""
             if r.tone is not None and not pd.isna(r.tone):
                 tone = " (tono accomodante 🕊️)" if r.tone > 0 else (" (tono restrittivo 🦅)" if r.tone < 0 else "")
-            alerts.append(_alert(f"news:{r.id}", level, f"🏛️ {r.group}: {r.title}{tone}", r.link))
+            alerts.append(_alert(key, level, f"🏛️ {r.group}: {r.title}{tone}", r.link))
         else:
-            strong = abs(r.sentiment) >= 0.6
-            level = "media" if (tickers and abs(r.sentiment) >= 0.34) or strong else "info"
+            level = "media" if tickers and abs(r.sentiment) >= NEWS_ALERT_SENTIMENT else "info"
             tag = f" → {', '.join(tickers)}" if tickers else ""
             mood = " 📈" if r.sentiment >= 0.34 else (" 📉" if r.sentiment <= -0.34 else "")
-            alerts.append(_alert(f"news:{r.id}", level, f"📰 {r.group} · {r.publisher}: {r.title}{tag}{mood}", r.link))
+            alerts.append(_alert(key, level, f"📰 {r.group} · {r.publisher}: {r.title}{tag}{mood}", r.link))
 
     for r in snap.ratings.itertuples() if not snap.ratings.empty else []:
         if now - r.date > MAX_AGE:
@@ -341,7 +368,9 @@ def load_state() -> dict:
 
 def save_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    tmp = STATE_FILE.with_suffix(".tmp")  # scrittura atomica: un arresto a metà non corrompe lo stato
+    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(STATE_FILE)
 
 
 def save_report(result: dict) -> None:
@@ -376,19 +405,29 @@ def run_once(cfg: dict | None = None, notify: bool = True, snap: Snapshot | None
     seen = state.get("seen", {})
     new = [a for a in alerts if a["key"] not in seen]
     min_level = LEVELS.get(cfg.get("livello_minimo_avviso", "media"), 1)
-    to_push = [] if first_run else [a for a in new if LEVELS[a["level"]] >= min_level]
+    # Aggiornamento dalla versione con le chiavi delle notizie basate sul link: le notizie già viste
+    # avrebbero chiavi nuove, quindi al primo giro si registrano senza inviarle.
+    migrating = bool(seen) and state.get("schema") != STATE_SCHEMA
+    to_push = [] if first_run else [a for a in new if LEVELS[a["level"]] >= min_level
+                                    and not (migrating and a["key"].startswith("news:"))]
+    # Ore di silenzio: passano solo gli avvisi "alta"; gli altri restano da inviare (se ancora recenti) dopo.
+    deferred = set()
+    if to_push and in_quiet_hours(cfg.get("ore_silenzio", ""), datetime.now().hour):
+        deferred = {a["key"] for a in to_push if a["level"] != "alta"}
+        to_push = [a for a in to_push if a["level"] == "alta"]
 
     now_iso = snap.fetched_at.isoformat()
-    seen.update({a["key"]: now_iso for a in alerts})
+    seen.update({a["key"]: now_iso for a in alerts if a["key"] not in deferred})
     cutoff = (snap.fetched_at - pd.Timedelta(days=30)).isoformat()
     state = {
         "seen": {k: v for k, v in seen.items() if v >= cutoff},
         "last_signal": dict(zip(ranking["ticker"], ranking["signal"])) if not ranking.empty else state.get("last_signal", {}),
         "last_run": now_iso,
+        "schema": STATE_SCHEMA,
     }
     save_state(state)
 
-    message = format_message(to_push, ranking, snap, first_run)
+    message = format_message(to_push, ranking, snap, first_run, max_alerts=int(cfg.get("max_avvisi_messaggio", 10)))
     status = []
     if notify and (to_push or (first_run and not ranking.empty) or cfg.get("invia_riepilogo_sempre")):
         title = f"📊 Radar Azioni – {datetime.now():%d/%m %H:%M}"
