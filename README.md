@@ -280,3 +280,19 @@ streamlit run app.py
 | `build_windows.bat` / `build_mac.sh` | Script di build |
 | `run_windows.bat` | Avvio rapido da sorgente |
 | `tests/` | Test (`python -m pytest tests`) con dati simulati |
+
+## Novità della versione 2.0.0
+
+- **Crypto più veloce e coerente**: si usano solo candele chiuse; candele scaricate in modo incrementale;
+  statistica e Time Machine ricalcolate solo a candela nuova; indicatori calcolati una volta per coin;
+  limite di richieste dell'exchange rispettato con nuovi tentativi (scansione ripetuta: da ~7 s a ~3 s).
+- **Avvisi meno rumorosi**: stessa notizia da più ricerche = un avviso; notizie generiche solo "info";
+  ore di silenzio (es. `23-7`) e numero massimo di avvisi per messaggio nelle Impostazioni.
+- **Bot**: token salvato cifrato (protezione di Windows), collegamento solo con codice
+  (`t.me/<bot>?start=CODICE` dall'app), comandi in parallelo, riavvio automatico dopo un errore,
+  avviso quando esce una nuova versione.
+- **Test delle previsioni**: verdetto statistico ("il modello ha un vantaggio?") dopo 100 operazioni chiuse;
+  può girare anche su GitHub Actions a PC spento (variabile `TEST_SU_GITHUB = true`, Excel negli Artifacts).
+- **Fonti azioni**: nuovi tentativi sugli errori HTTP e riserva Yahoo chart quando yfinance non funziona.
+- **Build**: versioni bloccate in `constraints.txt` (Dependabot propone gli aggiornamenti), autotest
+  dell'eseguibile in CI (`--self-test`), release automatica con un tag `v*`.
