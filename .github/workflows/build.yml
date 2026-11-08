@@ -98,7 +98,7 @@ jobs:
         run: |
           cd art
           for d in Crypto-Radar-Ultimate-Windows Crypto-Radar-Ultimate-macOS; do (cd "$d" && zip -qr "../../$d.zip" .); done
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             Crypto-Radar-Ultimate-Windows.zip
