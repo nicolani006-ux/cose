@@ -519,11 +519,32 @@ class RadarBot:
             self.run_forward_test()
         except Exception:  # noqa: BLE001
             log.exception("Test previsioni fallito")
+        try:
+            self.check_updates()
+        except Exception:  # noqa: BLE001
+            log.exception("Controllo aggiornamenti fallito")
         finally:
             self.state["last_check"] = time.time()
             self._save_state()
             background.write_status(ultimo_controllo=time.strftime("%Y-%m-%dT%H:%M:%S"))
             self._check_lock.release()
+
+    def check_updates(self, every_s: float = 86_400) -> None:
+        """Una volta al giorno: se su GitHub c'è una versione nuova, avvisa (una sola volta per versione)."""
+        if time.time() - self.state.get("update_checked", 0) < every_s:
+            return
+        from stocks.updates import update_available
+
+        self.state["update_checked"] = time.time()
+        rel = update_available()
+        if rel and self.state.get("update_notified") != rel["version"]:
+            self.state["update_notified"] = rel["version"]
+            from version import VERSION
+
+            notify_all(self.cfg, "⬆️ Radar Ultimate – aggiornamento disponibile",
+                       f"È uscita la versione {rel['version']} (tu hai la {VERSION}).\nScaricala da: {rel['url']}",
+                       f"Versione {rel['version']} disponibile")
+        self._save_state()
 
     def poll(self, timeout: int = 25) -> int:
         updates = self.api.get_updates(self.state.get("offset", 0), timeout=timeout)

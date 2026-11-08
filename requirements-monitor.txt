@@ -1,3 +1,4 @@
+-c constraints.txt
 # Solo ciò che serve al controllo orario (monitor.py), senza interfaccia
 pandas>=2.2
 numpy>=1.26

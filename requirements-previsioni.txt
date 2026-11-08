@@ -1,3 +1,4 @@
+-c constraints.txt
 # Solo ciò che serve a excel_previsioni.py (test delle previsioni crypto + Excel)
 ccxt>=4.4
 pandas>=2.2

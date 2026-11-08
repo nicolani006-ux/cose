@@ -18,7 +18,7 @@ hiddenimports = [
     "ui_common", "crypto_core", "excel_previsioni", "stocks.skills", "stocks.congress", "stocks.fundamentals",
     "pypdf", "zipfile", "xml.etree.ElementTree", "gzip",
     "stocks", "stocks.config", "stocks.sources", "stocks.analysis", "stocks.monitor",
-    "stocks.notify", "stocks.background", "stocks.telegram_bot",
+    "stocks.notify", "stocks.background", "stocks.telegram_bot", "stocks.secret", "stocks.updates", "version",
     "ccxt", "feedparser", "openpyxl", "altair", "requests", "yfinance",
 ]
 hiddenimports += collect_submodules("plyer")

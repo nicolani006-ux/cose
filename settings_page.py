@@ -210,6 +210,31 @@ def section_sources(cfg: dict) -> None:
             st.success("Salvato. I dati verranno ricaricati.")
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _latest_release() -> dict | None:
+    from stocks.updates import latest_release
+
+    return latest_release()
+
+
+def section_updates() -> None:
+    from stocks.updates import parse_version
+    from version import VERSION
+
+    st.header("⬆️ Versione e aggiornamenti")
+    if not st.button(f"🔎 Controlla aggiornamenti (versione attuale {VERSION})"):
+        st.caption("Il bot controlla gli aggiornamenti una volta al giorno e ti avvisa su Telegram.")
+        return
+    rel = _latest_release()
+    if rel is None:
+        st.caption(f"Versione {VERSION}. Controllo aggiornamenti non disponibile (offline o repository privato).")
+    elif parse_version(rel["version"]) > parse_version(VERSION):
+        st.warning(f"È disponibile la versione **{rel['version']}** (tu hai la {VERSION}).")
+        st.link_button("Scarica l'aggiornamento", rel["url"])
+    else:
+        st.success(f"Versione {VERSION}: è la più recente.")
+
+
 def main() -> None:
     st.set_page_config(page_title="Impostazioni", page_icon="⚙️", layout="wide")
     st.title("⚙️ Impostazioni & Bot")
@@ -221,6 +246,8 @@ def main() -> None:
     section_money(cfg)
     st.divider()
     section_sources(cfg)
+    st.divider()
+    section_updates()
     st.caption(f"Impostazioni, report e log in: `{DATA_DIR}`")
 
 

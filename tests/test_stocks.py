@@ -308,7 +308,7 @@ def test_settings_page_opens_without_loading_data(monkeypatch):
     at.run()
     assert not at.exception, at.exception
     assert [h.value for h in at.header] == ["🤖 Bot Telegram", "🔔 Avvisi", "💰 Capitale e rischio",
-                                            "📡 Fonti e watchlist"]
+                                            "📡 Fonti e watchlist", "⬆️ Versione e aggiornamenti"]
     at.text_input[0].input("123:ABC")
     at.button[0].click().run()  # Salva token
     assert monitor.load_config()["telegram_token"] == "123:ABC"
