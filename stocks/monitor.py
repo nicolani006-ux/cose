@@ -290,7 +290,7 @@ def format_message(alerts: list[dict], ranking: pd.DataFrame, snap: Snapshot, fi
             for i, r in enumerate(buy.itertuples(), 1):
                 lines.append(f"{i}. {r.ticker} ({r.name}) {r.score:+.0f} {r.signal} — {r.reasons[:220]}")
                 if not pd.isna(r.buy):
-                    hist = f" · storico {r.bt_win_rate:.0f}% su {int(r.bt_trades)}" if r.bt_trades else ""
+                    hist = f" · probabilità SELL {r.probability:.0f}%" if not pd.isna(r.probability) else ""
                     lines.append(f"   🎯 BUY {r.buy:,.2f}$ · SELL {r.sell:,.2f}$ · STOP {r.stop:,.2f}${hist}")
         avoid = ranking[ranking["score"] <= -20].tail(3)
         if not avoid.empty:

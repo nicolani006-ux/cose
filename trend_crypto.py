@@ -108,6 +108,7 @@ EXPORT_COLUMNS = {
     "symbol": "Coppia", "price": "Prezzo", "change_24h": "Var. 24h %", "volume_24h": "Volume 24h",
     "rsi": "RSI", "trend_ema": "Trend EMA", "vol_ratio": "Volume rel.", "volatility": "Volatilità ATR %",
     "score": "Punteggio", "signal": "Segnale", "buy": "Prezzo BUY", "sell": "Prezzo SELL", "stop": "Stop loss",
+    "probability": "Probabilità SELL %", "mc_win": "Time Machine %",
     "bt_win_rate": "Successo storico %", "bt_trades": "Segnali storici", "bt_avg_ret": "Rendimento medio storico %",
     "alerts": "Allerte",
 }
@@ -201,7 +202,7 @@ def tab_radar(radar: pd.DataFrame, cfg: dict) -> None:
         height=min(38 * (len(view) + 1), 900),
         column_order=[
             "symbol", "price", "change_24h", "spark", "score", "signal", "buy", "sell", "stop",
-            "bt_win_rate", "bt_trades", "rsi", "trend_ema", "vol_ratio", "volatility", "volume_24h", "alerts",
+            "probability", "bt_win_rate", "bt_trades", "rsi", "trend_ema", "vol_ratio", "volatility", "volume_24h", "alerts",
         ],
         column_config={
             "symbol": st.column_config.TextColumn("Coppia", pinned=True),
@@ -221,6 +222,7 @@ def tab_radar(radar: pd.DataFrame, cfg: dict) -> None:
             "buy": st.column_config.NumberColumn("BUY", format="%.6g", help=PLAN_HELP),
             "sell": st.column_config.NumberColumn("SELL", format="%.6g", help=PLAN_HELP),
             "stop": st.column_config.NumberColumn("STOP", format="%.6g", help=PLAN_HELP),
+            "probability": st.column_config.NumberColumn("Prob. SELL", format="%.0f%%", help=PLAN_HELP),
             "bt_win_rate": st.column_config.NumberColumn("Successo storico", format="%.0f%%", help=PLAN_HELP),
             "bt_trades": st.column_config.NumberColumn("Segnali", format="%d"),
         },

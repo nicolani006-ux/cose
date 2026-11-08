@@ -82,7 +82,7 @@ def tab_ranking(ranking: pd.DataFrame) -> None:
     st.dataframe(
         view, hide_index=True, width="stretch", height=min(38 * (len(view) + 1), 900),
         column_order=["ticker", "name", "sector", "price", "chg_1d", "chg_1m", "spark", "score", "signal",
-                      "buy", "sell", "stop", "bt_win_rate", "bt_trades",
+                      "buy", "sell", "stop", "probability", "bt_win_rate", "bt_trades",
                       "s_tecnico", "s_analisti", "s_notizie", "s_istituzioni", "s_macro", "reasons"],
         column_config={
             "ticker": st.column_config.TextColumn("Titolo", pinned=True),
@@ -102,6 +102,7 @@ def tab_ranking(ranking: pd.DataFrame) -> None:
             "buy": st.column_config.NumberColumn("BUY $", format="%.2f", help=PLAN_HELP),
             "sell": st.column_config.NumberColumn("SELL $", format="%.2f", help=PLAN_HELP),
             "stop": st.column_config.NumberColumn("STOP $", format="%.2f", help=PLAN_HELP),
+            "probability": st.column_config.NumberColumn("Prob. SELL", format="%.0f%%", help=PLAN_HELP),
             "bt_win_rate": st.column_config.NumberColumn("Successo storico", format="%.0f%%", help=PLAN_HELP),
             "bt_trades": st.column_config.NumberColumn("Segnali", format="%d"),
         },

@@ -101,13 +101,13 @@ class TelegramAPI:
 
 
 def plan_line(r) -> str:
-    """🎯 BUY / SELL / STOP con la percentuale di successo storica."""
+    """🎯 BUY / SELL / STOP con la probabilità (storia + Time Machine)."""
     if pd.isna(r.get("buy")):
         return "🎯 Livelli non disponibili (storico insufficiente)"
-    wr = r.get("bt_win_rate")
-    hist = f" · storico {wr:.0f}% su {int(r['bt_trades'])}" if wr is not None and not pd.isna(wr) else ""
+    p = r.get("probability")
+    prob = f" · probabilità SELL {p:.0f}%" if p is not None and not pd.isna(p) else ""
     return (f"🎯 BUY {r['buy']:,.2f}$ · SELL {r['sell']:,.2f}$ (+{r['upside_pct']:.1f}%) · "
-            f"STOP {r['stop']:,.2f}$ (-{r['risk_pct']:.1f}%){hist}")
+            f"STOP {r['stop']:,.2f}$ (-{r['risk_pct']:.1f}%){prob}")
 
 
 def _pct(v) -> str:
@@ -270,6 +270,7 @@ class RadarBot:
             f"13F {r['s_istituzioni']:+.0f} · Fed {r['s_macro']:+.0f})",
             "", plan_line(r),
             f"📊 Storico: {stat_text(r, 'giorni')}",
+            *([f"⏱️ Time Machine: {r['mc_verdict']}"] if isinstance(r.get("mc_verdict"), str) else []),
             *(["⚠️ Il segnale attuale non è d'acquisto: lo STOP serve se hai già il titolo, il BUY per un "
                "ingresso futuro."] if r["score"] < 20 else []),
             "", "Motivi:", *[f"• {x}" for x in r["reasons"].split(" · ")],

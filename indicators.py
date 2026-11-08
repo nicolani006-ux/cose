@@ -307,7 +307,28 @@ def backtest_plan(df: pd.DataFrame, horizon: int = 20, threshold: float = 20) ->
 
 
 def plan_and_stats(df: pd.DataFrame, horizon: int = 20) -> dict:
-    return {**trade_plan(df), **backtest_plan(df, horizon=horizon)}
+    """Piano BUY/SELL/STOP + statistica storica + Time Machine (Monte Carlo) + probabilità combinata."""
+    plan = trade_plan(df)
+    out = {**plan, **backtest_plan(df, horizon=horizon)}
+    if np.isfinite(plan["buy"]):
+        mc = monte_carlo_plan(df, plan["buy"], plan["stop"], plan["sell"], horizon)
+        if mc.get("mc_replays"):
+            out.update(mc)
+    out["probability"] = combined_probability(out)
+    return out
+
+
+def combined_probability(row, global_rate: float = 1 / 3, prior_k: int = 5) -> float:
+    """Probabilità (%) che il piano arrivi al SELL prima dello STOP una volta eseguito il BUY:
+    media tra la storia reale del titolo (avvicinata a `global_rate` se i casi sono pochi)
+    e la Time Machine. Se manca una delle due si usa l'altra."""
+    trades = row.get("bt_trades") or 0
+    wins = min(row.get("bt_wins") or 0, trades)
+    hist = (wins + prior_k * global_rate) / (trades + prior_k) * 100
+    mc = row.get("mc_win")
+    if mc is None or pd.isna(mc):
+        return float(hist)
+    return float((hist + mc) / 2)
 
 
 def stat_text(row, unit: str = "candele") -> str:
@@ -339,5 +360,111 @@ def overall_stats(rows: pd.DataFrame) -> dict | None:
 
 PLAN_HELP = ("BUY = ordine d'acquisto (limite) mezzo ATR sotto il prezzo attuale, valido 5 candele · SELL = obiettivo 3 ATR sopra il BUY · "
              "STOP = vendi se scende 1,5 ATR sotto il BUY (rendimento/rischio 2:1). ATR = movimento medio di una candela. "
-             "Successo storico = % dei segnali d'acquisto passati di questo titolo in cui, con questi livelli, "
-             "il prezzo ha toccato il SELL prima dello STOP.")
+             "Probabilità SELL = media tra la storia reale (% dei segnali d'acquisto passati arrivati al SELL "
+             "prima dello STOP) e la Time Machine (2000 simulazioni del futuro costruite con le candele passate "
+             "della stessa ora del giorno).")
+
+
+# --------------------------------------------------------------------------- #
+# Time Machine: simulazione Monte Carlo del piano
+# (idea e regole da "trader-timemachine" di day-trader-skill, J. Schincariol, licenza MIT;
+#  qui riscritta in numpy e adattata al piano BUY limite / SELL / STOP / scadenza)
+# --------------------------------------------------------------------------- #
+
+MC_REPLAYS = 2000
+MC_SEED = 19
+MC_WINDOW = 2          # pesca candele di ±2 posizioni orarie attorno a quella da simulare
+MC_COIN_FLIP = 5.0     # soglie del verdetto, in punti percentuali (come la Time Machine originale)
+MC_STRONG = 15.0
+
+
+def _slot_pool(d: pd.DataFrame):
+    """Candele passate come rapporti sulla chiusura precedente, raggruppate per ora del giorno
+    (per i dati giornalieri un solo gruppo). Ritorna (pool per slot, slot dell'ultima candela, n. slot)."""
+    rel = np.column_stack([d["open"], d["high"], d["low"], d["close"]])[1:] / d["close"].to_numpy()[:-1, None]
+    t = pd.to_datetime(d["time"], utc=True)
+    step = (t.diff().dropna().median() if len(t) > 1 else pd.Timedelta(days=1))
+    if step >= pd.Timedelta(hours=23):
+        return [rel], 0, 1, step
+    per_day = max(1, int(round(pd.Timedelta(days=1) / step)))
+    minutes = (t.dt.hour * 60 + t.dt.minute).to_numpy()
+    slots = (minutes // max(1, int(step / pd.Timedelta(minutes=1)))) % per_day
+    pool = [rel[slots[1:] == s] for s in range(per_day)]
+    return pool, int(slots[-1]), per_day, step
+
+
+def monte_carlo_plan(df: pd.DataFrame, buy: float, stop: float, target: float, horizon: int,
+                     replays: int = MC_REPLAYS, seed: int = MC_SEED, window: int = MC_WINDOW,
+                     fill_bars: int = PLAN_FILL_BARS) -> dict:
+    """Ricostruisce `replays` volte le candele future e applica il piano come `simulate_trade`.
+
+    Ogni candela futura è una candela passata della stessa ora del giorno (± `window` slot),
+    riscalata sul prezzo corrente. Stessa regola prudente: se una candela tocca STOP e SELL,
+    vince lo STOP. Ritorna le probabilità (in %) e il verdetto."""
+    d = df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+    if len(d) < 60 or not (stop < buy < target):
+        return {"mc_replays": 0}
+    pool, last_slot, n_slots, _ = _slot_pool(d)
+    rng = np.random.default_rng(seed)
+    steps = fill_bars + horizon
+    rel = np.empty((replays, steps, 4))
+    for k in range(steps):
+        base = (last_slot + 1 + k) % n_slots
+        cand = [p for off in range(-window, window + 1) if len((p := pool[(base + off) % n_slots]))]
+        cand = np.concatenate(cand) if cand else np.concatenate([p for p in pool if len(p)])
+        rel[:, k, :] = cand[rng.integers(0, len(cand), replays)]
+    closes = d["close"].iloc[-1] * np.cumprod(rel[:, :, 3], axis=1)
+    prev = np.concatenate([np.full((replays, 1), d["close"].iloc[-1]), closes[:, :-1]], axis=1)
+    o, h, lo, c = (prev * rel[:, :, i] for i in range(4))
+
+    idx = np.arange(steps)
+    fill_ok = (lo[:, :fill_bars] <= buy)
+    filled = fill_ok.any(axis=1)
+    f = np.where(filled, fill_ok.argmax(axis=1), 0)
+    entry = np.minimum(buy, o[np.arange(replays), f])
+    end = f + horizon - 1
+    in_trade = (idx[None, :] >= f[:, None]) & (idx[None, :] <= end[:, None])
+    stop_hit = in_trade & (lo <= stop)
+    tgt_hit = in_trade & (idx[None, :] > f[:, None]) & (h >= target)
+    big = steps + 1
+    k_stop = np.where(stop_hit.any(axis=1), stop_hit.argmax(axis=1), big)
+    k_tgt = np.where(tgt_hit.any(axis=1), tgt_hit.argmax(axis=1), big)
+    loss = filled & (k_stop < big) & (k_stop <= k_tgt)
+    win = filled & (k_tgt < big) & (k_tgt < k_stop)
+    timeout = filled & ~loss & ~win
+    rows = np.arange(replays)
+    exit_loss = np.where(k_stop == f, stop, np.minimum(stop, o[rows, np.minimum(k_stop, steps - 1)]))
+    exit_win = np.maximum(target, o[rows, np.minimum(k_tgt, steps - 1)])
+    exit_to = c[rows, np.minimum(end, steps - 1)]
+    exit_price = np.where(loss, exit_loss, np.where(win, exit_win, exit_to))
+    ret = np.where(filled, (exit_price / entry - 1) * 100, np.nan)
+
+    n_f = int(filled.sum())
+    p_win = win.sum() / n_f * 100 if n_f else np.nan
+    p_loss = loss.sum() / n_f * 100 if n_f else np.nan
+    r = (target - buy) / (buy - stop)
+    hits = win.sum() + loss.sum()
+    share = win.sum() / hits * 100 if hits else np.nan
+    even = 100 / (1 + r)
+    return {
+        "mc_replays": replays, "mc_fill_rate": float(n_f / replays * 100),
+        "mc_win": float(p_win), "mc_loss": float(p_loss),
+        "mc_timeout": float(timeout.sum() / n_f * 100) if n_f else np.nan,
+        "mc_avg_ret": float(np.nanmean(ret)) if n_f else np.nan,
+        "mc_share": float(share), "mc_break_even": float(even), "mc_verdict": mc_verdict(share, even),
+    }
+
+
+def mc_verdict(share: float, even: float) -> str:
+    """Verdetto in una frase: quota di SELL tra le simulazioni arrivate a SELL o STOP,
+    confrontata con la quota che serve per andare in pari (1/(1+R): 33% con rendimento/rischio 2)."""
+    if share is None or pd.isna(share):
+        return "Nessuna simulazione ha toccato SELL o STOP: decide il prezzo a scadenza"
+    gap = share - even
+    if abs(gap) < MC_COIN_FLIP:
+        head = "Vicino al pareggio"
+    elif abs(gap) < MC_STRONG:
+        head = "Tende verso il SELL" if gap > 0 else "Tende verso lo STOP"
+    else:
+        head = "Fortemente verso il SELL" if gap > 0 else "Fortemente verso lo STOP"
+    return f"{head}: SELL nel {share:.0f}% dei casi decisi, ne serve il {even:.0f}% per andare in pari"

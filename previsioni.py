@@ -55,8 +55,9 @@ def save_journal(journal: list[dict]) -> None:
 
 
 def probability(wins, trades, global_rate: float) -> float:
-    """Probabilità di arrivare al SELL prima dello STOP: successo storico della coin,
-    avvicinato alla media generale quando i casi storici sono pochi."""
+    """Probabilità storica di arrivare al SELL prima dello STOP: successo passato della coin,
+    avvicinato alla media generale quando i casi storici sono pochi. La probabilità registrata
+    è la media tra questa e la Time Machine (simulazione Monte Carlo), se disponibile."""
     wins = 0 if wins is None or pd.isna(wins) else float(wins)
     trades = 0 if trades is None or pd.isna(trades) else float(trades)
     wins = min(max(wins, 0.0), trades)
@@ -80,12 +81,17 @@ def record_signals(journal: list[dict], radar: pd.DataFrame, exchange: str, time
         eid = f"{exchange}|{r.symbol}|{timeframe}|{int(r.last_candle)}"
         if eid in known:
             continue
+        hist = probability(r.bt_wins, r.bt_trades, g_rate)
+        mc = getattr(r, "mc_win", None)
+        mc = None if mc is None or pd.isna(mc) else float(mc) / 100
         e = {
             "id": eid, "symbol": r.symbol, "exchange": exchange, "timeframe": timeframe,
             "horizon": HORIZON_BARS.get(timeframe, 48), "created": now.isoformat(timespec="seconds"),
             "signal_ts": int(r.last_candle), "price": float(r.price), "score": float(r.score),
             "signal": r.signal, "buy": float(r.buy), "sell": float(r.sell), "stop": float(r.stop),
-            "probability": round(probability(r.bt_wins, r.bt_trades, g_rate), 4),
+            "probability": round(hist if mc is None else (hist + mc) / 2, 4),
+            "prob_hist": round(hist, 4), "prob_mc": None if mc is None else round(mc, 4),
+            "mc_verdict": getattr(r, "mc_verdict", None) if mc is not None else None,
             "hist_trades": int(0 if pd.isna(r.bt_trades) else r.bt_trades),
             "expected_margin_pct": (r.sell / r.buy - 1) * 100,
             "status": "pending",
@@ -178,6 +184,7 @@ def compute_stats(journal: list[dict]) -> dict:
         s.update(
             win_rate=win.mean() * 100, prob_mean=closed["probability"].mean() * 100,
             brier=float(((closed["probability"] - win) ** 2).mean()),
+            **_brier_parts(closed, win),
             margin_mean=closed["expected_margin_pct"].mean(), ret_mean=closed["ret_pct"].mean(),
             net_mean=closed["net_pct"].mean(), net_median=closed["net_pct"].median(),
             total_eur=float(eur.sum()), invested_eur=STAKE_EUR * len(closed),
@@ -191,6 +198,18 @@ def compute_stats(journal: list[dict]) -> dict:
     if not d.empty:
         s.update(direction_n=len(d), direction_up=(d > 0).mean() * 100, direction_mean=d.mean())
     return s
+
+
+def _brier_parts(closed: pd.DataFrame, win: pd.Series) -> dict:
+    """Precisione separata delle due stime, sulle sole operazioni che le hanno entrambe."""
+    out = {}
+    for col, key in (("prob_hist", "brier_hist"), ("prob_mc", "brier_mc")):
+        if col in closed:
+            p = pd.to_numeric(closed[col], errors="coerce")
+            ok = p.notna()
+            if ok.any():
+                out[key] = float(((p[ok] - win[ok]) ** 2).mean())
+    return out
 
 
 def summary_text(s: dict) -> str:
@@ -242,12 +261,19 @@ COLUMNS = [  # (intestazione, larghezza, formato)
     ("Massima perdita toccata", 13, "0.00%"),
     ("Variazione dopo l'orizzonte", 13, "0.00%"),
     ("Casi storici della coin", 10, "0"),
+    ("Probabilità storica", 11, "0%"),
+    ("Probabilità Time Machine", 11, "0%"),
+    ("Verdetto Time Machine", 60, None),
     ("Exchange / timeframe", 16, None),
 ]
 
 
 def _pct(v):
     return None if v is None or pd.isna(v) else v / 100
+
+
+def _num(v):
+    return None if v is None or pd.isna(v) else v
 
 
 def write_excel(journal: list[dict], path=EXCEL_FILE) -> None:
@@ -288,7 +314,9 @@ def write_excel(journal: list[dict], path=EXCEL_FILE) -> None:
             (e["closed_at"] or "")[:16].replace("T", " ") if isinstance(e["closed_at"], str) else None,
             None if pd.isna(e["exit_price"]) else e["exit_price"], None if pd.isna(e["hours"]) else e["hours"],
             _pct(e["net_pct"]) if status in CLOSED else None, _pct(e["mfe_pct"]), _pct(e["mae_pct"]),
-            _pct(e["chg_horizon_pct"]), e.get("hist_trades", 0), f"{e['exchange']} / {e['timeframe']}",
+            _pct(e["chg_horizon_pct"]), e.get("hist_trades", 0),
+            _num(e.get("prob_hist")), _num(e.get("prob_mc")), e.get("mc_verdict"),
+            f"{e['exchange']} / {e['timeframe']}",
         ])
         row = ws.max_row
         for col in (5, 17):
@@ -327,6 +355,11 @@ def write_excel(journal: list[dict], path=EXCEL_FILE) -> None:
         put("Probabilità media ipotizzata", _pct(s["prob_mean"]), "0.0%",
             "Se è vicina al successo reale, le probabilità indicate sono affidabili")
         put("Brier score", s["brier"], "0.000", "Precisione delle probabilità: 0 = perfetta, 0,25 = come tirare a caso")
+        if "brier_hist" in s:
+            put("Brier score – solo probabilità storica", s["brier_hist"], "0.000")
+        if "brier_mc" in s:
+            put("Brier score – solo Time Machine", s["brier_mc"], "0.000",
+                "La stima con il valore più basso è stata la più precisa finora")
         put("Margine medio ipotizzato", _pct(s["margin_mean"]), "0.00%")
         put("Guadagno reale medio per operazione", _pct(s["ret_mean"]), "0.00%")
         put("Guadagno netto medio (commissioni 0,1% + 0,1%)", _pct(s["net_mean"]), "0.00%")
