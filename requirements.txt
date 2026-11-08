@@ -8,6 +8,6 @@ feedparser>=6.0
 requests>=2.31
 openpyxl>=3.1
 streamlit-desktop-app>=0.3
-yfinance>=0.2.54
+yfinance>=1.8.0
 plyer>=2.1
 pypdf>=4.0
