@@ -58,7 +58,7 @@ referencing==0.37.0
 requests==2.34.2
 rpds-py==2026.9.1
 setuptools==84.2.1
-soupsieve==4.0.1
+soupsieve==4.1
 starlette==1.10.0
 streamlit==1.67.0
 streamlit-desktop-app==0.3.4
