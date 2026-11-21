@@ -10,3 +10,16 @@ dist/
 
 # Dati personali di trading delle skill day-trader (piani, ordini, portafoglio): non pubblicarli
 trader/
+
+# Ruflo local secrets and runtime data
+.env
+.env.local
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Ruflo runtime (database e metriche locali)
+.swarm/*.db
+.claude-flow/metrics/
+*.bak-ruflo-*

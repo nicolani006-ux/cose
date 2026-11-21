@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radar Web</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer></script>
+  <script src="/static/pac.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><span class="logo">📡</span><div><b>Radar Web</b><small>Crypto Radar Ultimate</small></div></div>
+    <nav id="nav">
+      <a href="#/" data-page="dashboard"><span>🏠</span>Dashboard</a>
+      <a href="#/segnali" data-page="segnali"><span>🟢</span>Segnali</a>
+      <a href="#/operazioni" data-page="operazioni"><span>📈</span>Operazioni</a>
+      <a href="#/auto" data-page="auto"><span>💼</span>Investimento auto</a>
+      <a href="#/laboratorio" data-page="laboratorio"><span>🧪</span>Laboratorio</a>
+      <a href="#/pac" data-page="pac"><span>💶</span>PAC (ETF)</a>
+      <a href="#/statistiche" data-page="statistiche"><span>📊</span>Statistiche</a>
+      <a href="#/recap" data-page="recap"><span>📋</span>Recap giornata</a>
+      <a href="#/calendario" data-page="calendario"><span>📅</span>Calendario errori</a>
+      <a href="#/radar" data-page="radar"><span>🛰️</span>Radar live</a>
+      <a href="#/bot" data-page="bot"><span>🤖</span>Bot Telegram</a>
+      <a href="#/impostazioni" data-page="impostazioni"><span>⚙️</span>Impostazioni</a>
+    </nav>
+    <div class="side-foot">
+      <div id="engineState" class="engine"><i class="dot"></i><span>Motore…</span></div>
+      <small class="muted">Indicazioni automatiche, non consulenza finanziaria.</small>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="menuBtn" aria-label="Menu">☰</button>
+      <h1 id="pageTitle">Dashboard</h1>
+      <div class="top-right">
+        <div class="countdown" id="countdown" title="Prossimo preavviso / chiusura candela">
+          <div><small>⏰ Preavviso</small><b id="cdPre">--:--</b></div>
+          <div><small>🕯️ Chiusura</small><b id="cdClose">--:--</b></div>
+        </div>
+        <button class="icon-btn" id="scanBtn" title="Scansiona ora">⟳</button>
+        <button class="icon-btn" id="bellBtn" title="Notifiche">🔔<i id="bellCount" class="badge hidden">0</i></button>
+        <button class="icon-btn" id="themeBtn" title="Tema chiaro/scuro">◐</button>
+      </div>
+    </header>
+    <div id="notifBanner" class="banner hidden">
+      Attiva le notifiche del browser per ricevere il preavviso e il segnale BUY massimo anche con la pagina in secondo piano.
+      <button class="btn small primary" id="enableNotif">Attiva notifiche</button>
+      <button class="btn small ghost" id="dismissNotif">Più tardi</button>
+    </div>
+    <section id="view" class="view"></section>
+  </main>
+</div>
+
+<aside id="drawer" class="drawer hidden">
+  <div class="drawer-head"><b>Attività e notifiche</b><button class="icon-btn" id="drawerClose">✕</button></div>
+  <div id="drawerBody" class="feed"></div>
+</aside>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head"><b id="modalTitle"></b><button class="icon-btn" id="modalClose">✕</button></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+</body>
+</html>

@@ -5,6 +5,7 @@ o l'.app (macOS). Da sorgente:  python launcher.py
 
 Senza finestra:  --monitor  un controllo delle azioni con invio degli avvisi
                  --bot      bot Telegram + controllo ogni ora (avviato dalle Impostazioni)
+                 --web      Radar Web: app locale nel browser (http://127.0.0.1:8765)
                  --excel    solo test delle previsioni crypto + file Excel
                  --versione stampa la versione
                  --self-test verifica che tutti i moduli dell'eseguibile si carichino (usato dalla CI)
@@ -31,6 +32,7 @@ SELF_TEST_MODULES = [
     "stocks.monitor", "stocks.notify", "stocks.background", "stocks.telegram_bot", "stocks.skills", "stocks.congress",
     "stocks.fundamentals", "stocks.secret", "stocks.updates", "ccxt", "feedparser", "openpyxl", "altair", "yfinance",
     "pypdf", "plyer", "streamlit", "streamlit_desktop_app",
+    "radar_web", "webapp.store", "webapp.engine", "webapp.autotrade", "webapp.reports", "webapp.server", "starlette", "uvicorn",
 ]
 
 
@@ -89,6 +91,10 @@ if __name__ == "__main__":
         from stocks.monitor import main as monitor_main
 
         sys.exit(monitor_main([a for a in sys.argv[1:] if a != "--monitor"]))
+    if "--web" in sys.argv:  # Radar Web: app locale nel browser
+        from radar_web import main as web_main
+
+        sys.exit(web_main([a for a in sys.argv[1:] if a != "--web"]))
     if "--excel" in sys.argv:  # solo test delle previsioni + file Excel
         from excel_previsioni import main as excel_main
 

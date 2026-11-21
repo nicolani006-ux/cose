@@ -5,7 +5,7 @@
 import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
 
-datas = [("app.py", ".")]
+datas = [("app.py", "."), ("webapp/static", "webapp/static")]
 # script delle skill di day-trader-skill (MIT) usati dall'app: Congresso USA e bilanci SEC
 datas += [(".claude/skills/trader-pelosi/ptr.py", "skills/trader-pelosi"),
           (".claude/skills/trader-analyst/facts.py", "skills/trader-analyst"),
@@ -20,7 +20,9 @@ hiddenimports = [
     "stocks", "stocks.config", "stocks.sources", "stocks.analysis", "stocks.monitor",
     "stocks.notify", "stocks.background", "stocks.telegram_bot", "stocks.secret", "stocks.updates", "version",
     "ccxt", "feedparser", "openpyxl", "altair", "requests", "yfinance",
+    "radar_web", "webapp", "webapp.store", "webapp.engine", "webapp.reports", "webapp.server",
 ]
+hiddenimports += collect_submodules("uvicorn") + collect_submodules("starlette")
 hiddenimports += collect_submodules("plyer")
 for pkg in ("streamlit", "altair", "yfinance", "curl_cffi"):
     d, b, h = collect_all(pkg)

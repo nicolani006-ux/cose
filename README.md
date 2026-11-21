@@ -25,6 +25,44 @@ App desktop (Streamlit + finestra nativa) con due sezioni:
 Usa solo dati pubblici: **non servono chiavi API** e l'app non fa operazioni di trading.
 > ⚠️ I segnali sono indicativi e non costituiscono consiglio finanziario.
 
+## 🌐 Radar Web (app locale in stile sito)
+
+Doppio clic su **`avvia_radar_web.bat`** (oppure `python radar_web.py`, o `"Crypto Radar Ultimate.exe" --web`):
+si apre **http://127.0.0.1:8765** nel browser. Il server ascolta solo sul tuo PC.
+
+| Pagina | Cosa contiene |
+|---|---|
+| 🏠 **Dashboard** | conto alla rovescia al prossimo preavviso e alla chiusura della candela, segnali di oggi, coin "in avvicinamento", radar, operazioni aperte, attività |
+| 🟢 **Segnali** | storico di segnali BUY massimo e preavvisi (✅ confermati / ✖ annullati), filtri, CSV |
+| 📈 **Operazioni** | ogni segnale massimo seguito sui prezzi reali (BUY → SELL / STOP / scadenza) + test previsioni |
+| 📊 **Statistiche** | curva del capitale, calibrazione delle probabilità, distribuzione dei risultati, per coin / ora / giorno, precisione dei preavvisi |
+| 📋 **Recap giornata** | riepilogo di un giorno qualsiasi, invio su Telegram con un clic |
+| 📅 **Calendario errori** | per ogni giorno: errori di previsione (preavvisi annullati, segnali finiti allo STOP) ed errori tecnici (exchange, rete, Telegram, bot) |
+| 🛰️ **Radar live**, 🤖 **Bot Telegram**, ⚙️ **Impostazioni** | radar completo con grafico di ogni coin, gestione del bot, soglie e notifiche |
+
+**Segnale BUY massimo con preavviso** (candele da 1 ora, valori modificabili nelle Impostazioni):
+
+1. **⏰ Preavviso – 20 minuti prima** della chiusura (alle hh:40): punteggio calcolato sulla candela ancora aperta;
+   se supera `soglia_preavviso` (45) con probabilità SELL ≥ 40% arriva "tra ~20 minuti potrebbe scattare".
+2. **🟢 Conferma** alla chiusura: punteggio sulla candela chiusa ≥ `soglia_massimo` (50) e probabilità ≥ 40% →
+   segnale con BUY / SELL / STOP (e quantità, se imposti il capitale). Il preavviso viene segnato confermato o annullato.
+3. Recap della giornata automatico alle 21:00.
+
+Avvisi su: Telegram, notifiche di Windows, notifiche del browser con suono. Il motore dei segnali gira in un solo
+processo: nell'app web oppure, ad app chiusa, nel bot (lo prende in carico da solo). Dati in `RadarUltimate\radar_web.db`.
+Nuovi comandi del bot: `/segnali`, `/recap`.
+
+### 💼 Investimento automatico
+
+Pagina **Investimento auto** (`#/auto`): ogni segnale BUY massimo confermato viene comprato da solo, senza chiedere.
+
+- **Regole:** % della liquidità per operazione (con minimo e massimo), acquisti al giorno, operazioni aperte insieme, stop alla perdita giornaliera, riserva mai investita, opzione "solo segnali preavvisati".
+- **Piano:** ordine BUY limite valido 5 candele → SELL limite sull'exchange + STOP controllato ogni 15 s → chiusura alla scadenza del piano.
+- **Simulazione** (predefinita): soldi virtuali sui prezzi reali; versamenti manuali o con il piano periodico (settimanale/mensile).
+- **Soldi veri:** chiavi API (solo trading spot, prelievi disattivati: le altre vengono rifiutate) cifrate con DPAPI in `chiavi_exchange.json`; si attiva scrivendo `INVESTI`. Il capitale è la liquidità libera in USDT sul conto.
+- **Emergenza:** pulsante "⛔ Ferma tutto" (anche vendita immediata di tutto) o `/ferma`, `/ferma tutto` su Telegram; stato con `/investimento`.
+- Lo STOP richiede il PC acceso con l'app o il bot attivi.
+
 ## 🧪 Test delle previsioni (prezzi reali)
 
 Per verificare se le previsioni funzionano davvero, ad ogni controllo orario il bot:

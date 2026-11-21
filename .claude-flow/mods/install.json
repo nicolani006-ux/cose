@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "installedAt": "2026-11-16T18:25:14.547Z",
+  "files": {
+    "C:\\Users\\crest\\OneDrive\\Desktop\\cose\\crypto-radar\\.claude\\settings.json": {
+      "plugins": [
+        "ruflo-mods@ruflo",
+        "ruflo-swarm@ruflo",
+        "ruflo-console@ruflo"
+      ],
+      "marketplace": true,
+      "env": true,
+      "claudeInstalled": []
+    }
+  }
+}

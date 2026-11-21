@@ -43,6 +43,10 @@ COMMANDS = [
     ("avvisi", "Ultimi avvisi"),
     ("controlla", "Esegui subito il controllo completo"),
     ("crypto", "Migliori criptovalute ora"),
+    ("segnali", "Segnali BUY massimo e preavvisi di oggi"),
+    ("recap", "Recap della giornata"),
+    ("investimento", "Stato dell'investimento automatico"),
+    ("ferma", "Ferma l'investimento automatico (/ferma tutto = vende anche le posizioni)"),
     ("test", "Risultati del test delle previsioni + file Excel"),
     ("watchlist", "Titoli seguiti"),
     ("aggiungi", "Aggiungi titoli, es. /aggiungi TSLA AMD"),
@@ -54,7 +58,7 @@ BUTTONS = {
     "🏆 Compra": "compra", "📉 Evita": "evita", "📊 Classifica": "classifica",
     "🏛️ Fed": "fed", "🏦 Banche": "banche", "🏢 Fondi": "fondi", "🗳️ Congresso": "congresso",
     "📰 Notizie": "notizie", "🔔 Avvisi": "avvisi", "▶️ Controlla": "controlla",
-    "🪙 Crypto": "crypto", "🧪 Test": "test", "ℹ️ Aiuto": "aiuto",
+    "🪙 Crypto": "crypto", "🟢 Segnali": "segnali", "📋 Recap": "recap", "💼 Investimento": "investimento", "🧪 Test": "test", "ℹ️ Aiuto": "aiuto",
 }
 KEYBOARD = [list(BUTTONS)[i:i + 3] for i in range(0, len(BUTTONS), 3)]
 DISCLAIMER = "ℹ️ Indicazioni automatiche, non consulenza finanziaria."
@@ -427,17 +431,88 @@ class RadarBot:
             import trend_crypto as tc
         except ImportError:
             return "🪙 La sezione crypto non è disponibile in questa installazione."
-        self.api.send(chat_id, "⏳ Scansione crypto su Binance…", keyboard=False)
-        radar, _ = tc.scan("binance", "USDT", 30, "1h")
+        cfg = self.cfg
+        ex, quote = cfg.get("segnali_exchange", "binance"), cfg.get("segnali_quote", "USDT")
+        self.api.send(chat_id, f"⏳ Scansione crypto su {ex} ({quote})…", keyboard=False)
+        radar, _ = tc.scan(ex, quote, 30, "1h")
         if radar.empty:
             return "🪙 Dati crypto non disponibili."
-        lines = ["🪙 Crypto (Binance, timeframe 1h) – migliori:"]
+        lines = [f"🪙 Crypto ({ex}, {quote}, timeframe 1h) – migliori:"]
         for r in radar.head(5).itertuples():
-            lines.append(f"• {r.symbol} {r.score:+.0f} {r.signal} · {r.price:.6g}$ ({_pct(r.change_24h)} 24h)")
+            lines.append(f"• {r.symbol} {r.score:+.0f} {r.signal} · {r.price:.6g} {quote} ({_pct(r.change_24h)} 24h)")
         lines.append("\nPeggiori:")
         for r in radar.tail(3).iloc[::-1].itertuples():
             lines.append(f"• {r.symbol} {r.score:+.0f} {r.signal}")
         return "\n".join(lines + ["", DISCLAIMER])
+
+    def cmd_segnali(self, arg, chat_id):
+        """Segnali BUY massimo e preavvisi di oggi (motore di Radar Web)."""
+        from datetime import datetime, timezone
+
+        from webapp import engine, store
+
+        start = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+        sigs = store.signals(since_iso=start.astimezone(timezone.utc).isoformat(timespec="seconds"))
+        st = engine.status()
+        lines = ["🟢 Segnali di oggi" + ("" if st.get("alive") else " (⚠️ motore dei segnali fermo)")]
+        maxs = [s for s in sigs if s["kind"] == "massimo"]
+        pre = [s for s in sigs if s["kind"] == "preavviso"]
+        for s in maxs[:10]:
+            lines.append(f"🟢 {s['symbol']} {datetime.fromisoformat(s['created']).astimezone():%H:%M} · punteggio "
+                         f"{s['score']:.0f} · prob. {s['probability'] or 0:.0f}%\n   BUY {engine.fmt_price(s['buy'])} · "
+                         f"SELL {engine.fmt_price(s['sell'])} · STOP {engine.fmt_price(s['stop'])}")
+        if not maxs:
+            lines.append("Nessun segnale BUY massimo finora.")
+        if pre:
+            icon = {"confermato": "✅", "annullato": "✖", "attesa": "⏳"}
+            lines.append("\n⏰ Preavvisi: " + ", ".join(f"{icon.get(s['status'], '')}{s['symbol'].split('/')[0]}" for s in pre[:15]))
+        if st.get("next_close"):
+            lines.append(f"\nProssimo preavviso alle {engine.local_hm(st['next_prealert'])}, "
+                         f"chiusura candela alle {engine.local_hm(st['next_close'])}")
+        return "\n".join(lines + ["", DISCLAIMER])
+
+    def cmd_recap(self, arg, chat_id):
+        from datetime import datetime
+
+        from webapp.reports import day_recap, recap_text
+
+        return "📋 " + recap_text(day_recap(datetime.now().date()))
+
+    def cmd_investimento(self, arg, chat_id):
+        from webapp import autotrade
+
+        cfg = load_config()
+        st = autotrade.status(cfg)
+        w, t = st["wallet"], st["today"]
+        real = st["mode"] == "reale"
+        lines = [f"💼 Investimento automatico: {'ATTIVO' if st['active'] else 'SPENTO'} "
+                 f"({'💶 soldi veri' if real else '🧪 simulazione'})"]
+        if real and st.get("exchange_free") is not None:
+            lines.append(f"Liquidità sull'exchange: {st['exchange_free']:.2f} {cfg['segnali_quote']}")
+        lines += [f"Versato {w['deposited']:.2f} · risultato {w['realized'] + w['unrealized']:+.2f}",
+                  f"Oggi: {t['trades']}/{cfg['auto_max_trade_giorno']} acquisti · {t['open']} aperte · "
+                  f"{t['pnl']:+.2f} chiuse"]
+        if st["blocked"]:
+            lines.append(f"⏸️ {st['blocked']}")
+        for p in autotrade.store.positions(st["mode"], autotrade.OPEN):
+            lines.append(f"• {p['symbol']} {'(ordine BUY)' if p['status'] == 'ordine' else ''} "
+                         f"{p['cost']:.2f} · SELL {p['sell']:.6g} · STOP {p['stop']:.6g}")
+        return "\n".join(lines + ["", "Fermare: /ferma (o /ferma tutto per vendere anche le posizioni)", DISCLAIMER])
+
+    def cmd_ferma(self, arg, chat_id):
+        from webapp import autotrade
+
+        cfg = load_config()
+        cfg["auto_attivo"] = False
+        save_config(cfg)
+        sell = arg.strip().lower() == "tutto"
+        if sell:
+            autotrade.request_close_all(cfg.get("auto_modalita", "simulazione"))
+        autotrade.store.add_event("errore", "⛔ Investimento automatico FERMATO (da Telegram)",
+                                  "Vendita di tutte le posizioni in corso." if sell else "Nessun nuovo acquisto.")
+        return ("⛔ Investimento automatico fermato. " + (
+            "Ordini annullati e posizioni vendute al mercato entro pochi secondi." if sell else
+            "Le operazioni aperte restano protette da SELL e STOP (per venderle: /ferma tutto)."))
 
     def cmd_test(self, arg, chat_id):
         import previsioni
@@ -649,6 +724,13 @@ def main(argv: list[str] | None = None) -> int:
                             ultimo_contatto=None, ultimo_errore=None, ultimo_controllo=None)
     log.info("Bot avviato (pid %s)", os.getpid())
     api = TelegramAPI(cfg["telegram_token"]) if cfg.get("telegram_token") else None
+    try:  # motore dei segnali BUY massimo: qui se l'app web non lo sta già facendo girare
+        from webapp import engine as signal_engine
+
+        if signal_engine.start_background("bot") is not None:
+            log.info("Motore dei segnali avviato nel bot")
+    except Exception:  # noqa: BLE001 - installazione senza la parte crypto
+        log.exception("Motore dei segnali non avviato")
     crashes: list[float] = []
     try:
         while True:

@@ -148,6 +148,51 @@ DEFAULT_CONFIG: dict = {
     "test_quote": "USDT",
     "test_timeframe": "1h",
     "test_coins": 30,
+    # Radar Web (webapp.py): segnale BUY massimo con preavviso prima della chiusura della candela
+    "web_porta": 8765,
+    "segnali_attivi": True,
+    "segnali_exchange": "binance",
+    "lab_auto_applica": True,
+    # strategia dei segnali: "trend" (punteggio sopra la soglia) o "dip" (compra il ribasso: RSI sotto dip_rsi
+    # con il prezzo sopra la EMA 200, acquisto subito, STOP e SELL a multipli di ATR)
+    "strategia": "trend",
+    "dip_rsi": 35,
+    "dip_stop_atr": 2.0,
+    "dip_target_atr": 3.0,         # il Laboratorio applica da solo la strategia migliore SE verificata
+    "dip_candele_max": 48,         # durata massima di un'operazione dip, in candele
+    # strategia "rimbalzo": chiusura sotto la banda di Bollinger bassa (media 20 - rimb_banda deviazioni), RSI < 35
+    # e BTC sopra la sua EMA 200; BUY subito, SELL alla media a 20, STOP a rimb_stop_atr ATR (webapp/lab_rimbalzo.py)
+    "rimb_banda": 3.5,
+    "rimb_stop_atr": 2.0,
+    "rimb_candele_max": 24,
+    "segnali_quote": "USDT",
+    "segnali_timeframe": "1h",
+    "segnali_coins": 60,
+    "segnali_volume_min": 10000,      # coin con meno scambi in 24 h (nella valuta di quotazione) non vengono seguite
+    "auto_spread_max": 0.5,           # differenza % massima fra miglior prezzo di vendita e di acquisto per comprare
+    "preavviso_minuti": 20,           # quanti minuti prima della chiusura della candela arriva il preavviso
+    "soglia_massimo": 50,             # punteggio (0-100) da cui il segnale d'acquisto è "al massimo"
+    "soglia_preavviso": 45,           # punteggio provvisorio che fa scattare il preavviso
+    "probabilita_minima": 40,         # % minima di arrivare al SELL prima dello STOP
+    "pausa_stesso_simbolo_ore": 6,    # dopo un segnale massimo, niente nuovi avvisi sulla stessa coin per N ore
+    "notifica_preavviso": True,
+    "riepilogo_giornaliero": True,
+    "riepilogo_ora": "21:00",
+    # Investimento automatico dei segnali BUY massimo (webapp/autotrade.py). Parte spento e in simulazione:
+    # la modalità reale si attiva solo dalla pagina "Investimento automatico", con le chiavi API verificate.
+    "auto_attivo": False,
+    "auto_modalita": "simulazione",   # "simulazione" (soldi virtuali) o "reale" (ordini veri sull'exchange)
+    "auto_percentuale": 20,           # % della liquidità disponibile investita in ogni operazione
+    "auto_importo_max": 50,           # massimo per operazione (USDT, 0 = nessun limite)
+    "auto_importo_min": 10,           # sotto questo importo l'operazione si salta
+    "auto_max_trade_giorno": 3,       # acquisti al giorno
+    "auto_max_posizioni": 3,          # operazioni aperte insieme
+    "auto_stop_perdita_giorno": 20,   # perdita (USDT) oltre la quale per oggi non si compra più
+    "auto_riserva": 0,                # USDT mai investiti
+    "auto_solo_preavvisati": False,   # compra solo i segnali arrivati dopo un preavviso confermato
+    "auto_piano_importo": 0,          # piano di versamento periodico (0 = nessuno)
+    "auto_piano_frequenza": "mensile",  # "settimanale" o "mensile"
+    "auto_piano_giorno": 1,           # giorno del mese (1-28) o della settimana (1 = lunedì)
 }
 
 

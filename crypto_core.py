@@ -122,7 +122,9 @@ def ohlcv_to_df(rows: list) -> pd.DataFrame:
     return df.drop(columns="ts").dropna()
 
 
-def top_symbols(exchange_id: str, quote: str, n: int) -> pd.DataFrame:
+def top_symbols(exchange_id: str, quote: str, n: int, min_volume: float = 0.0) -> pd.DataFrame:
+    """Le `n` coin più scambiate contro `quote`, escluse quelle con volume 24 h sotto `min_volume`
+    (poco liquide: prezzi che saltano e ordini eseguiti male)."""
     ex = get_exchange(exchange_id)
     tickers = _retry(ex.fetch_tickers)
     rows = []
@@ -135,7 +137,7 @@ def top_symbols(exchange_id: str, quote: str, n: int) -> pd.DataFrame:
         qv = t.get("quoteVolume")
         if qv is None and t.get("baseVolume") and t.get("last"):
             qv = t["baseVolume"] * t["last"]
-        if not qv or not t.get("last"):
+        if not qv or not t.get("last") or qv < min_volume:
             continue
         rows.append({
             "symbol": sym,
@@ -223,8 +225,9 @@ def analyze_symbol(exchange_id: str, symbol: str, timeframe: str, df: pd.DataFra
     return res
 
 
-def scan(exchange_id: str, quote: str, n: int, timeframe: str) -> tuple[pd.DataFrame, list[str]]:
-    tops = top_symbols(exchange_id, quote, n)
+def scan(exchange_id: str, quote: str, n: int, timeframe: str,
+         min_volume: float = 0.0) -> tuple[pd.DataFrame, list[str]]:
+    tops = top_symbols(exchange_id, quote, n, min_volume)
     if tops.empty:
         return tops, []
 

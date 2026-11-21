@@ -139,7 +139,7 @@ def test_crypto_command(bot, monkeypatch):
 
     monkeypatch.setattr(ccxt, "binance", FakeExchange, raising=False)
     bot.handle_update(msg("🪙 Crypto"))
-    assert "Crypto (Binance" in last(bot) and "/USDT" in last(bot)
+    assert "Crypto (binance, USDT" in last(bot) and "/USDT" in last(bot)
 
 
 def test_telegram_api_send_splits_and_adds_keyboard():

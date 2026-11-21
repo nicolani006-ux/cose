@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "skills": {
+    "backtesting-frameworks": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/quantitative-trading/skills/backtesting-frameworks/SKILL.md",
+      "computedHash": "06911073e6cb32003d4057134ab32548e7efd59d87e878c9f7f8915ca06ac260"
+    },
+    "ccxt-python": {
+      "source": "ccxt/ccxt",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/ccxt-python/SKILL.md",
+      "computedHash": "6cac15cbf06fcec52e63cd98099d81da5447dfb556e228759da6f6ae394ca633"
+    }
+  }
+}

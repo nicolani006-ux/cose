@@ -524,3 +524,44 @@ def sizing_text(sz: dict | None, unit: str = "$") -> str:
     q = f"{sz['qty']:.6g}" if sz["fractional"] else f"{int(sz['qty'])}"
     return (f"💰 Quantità {q} (spesa {sz['cost']:,.2f}{unit}) · perdita allo STOP {sz['loss_at_stop']:,.2f}{unit} · "
             f"guadagno al SELL {sz['gain_at_target']:,.2f}{unit} · limite decisivo: {sz['bound_by']}")
+
+
+# --------------------------------------------------------------------------- #
+# Strategia "Compra il ribasso" (dip): RSI che scende sotto la soglia mentre il prezzo resta sopra la EMA 200
+# --------------------------------------------------------------------------- #
+DIP_RSI = 35.0          # soglia RSI: il segnale scatta quando la attraversa verso il basso
+DIP_STOP_ATR = 2.0      # STOP: 2 ATR sotto il prezzo d'ingresso
+DIP_TARGET_ATR = 3.0    # SELL: 3 ATR sopra il prezzo d'ingresso
+DIP_ENTRY_BUFFER = 0.3  # % sopra il prezzo: ordine limite che si esegue subito (come un acquisto al mercato, ma protetto)
+
+
+def dip_plan(df: pd.DataFrame, d: pd.DataFrame | None = None, level: float = DIP_RSI,
+             k_stop: float = DIP_STOP_ATR, k_target: float = DIP_TARGET_ATR) -> dict:
+    """Segnale e piano della strategia dip sull'ultima candela di `df` (candele chiuse).
+
+    dip_hit: l'RSI è appena sceso sotto `level` (candela prima sopra o uguale) e la chiusura è sopra la EMA 200.
+    Piano: acquisto subito (limite al prezzo + DIP_ENTRY_BUFFER%), STOP e SELL a multipli di ATR dal prezzo."""
+    d = _with_indicators(df, d)
+    if len(d) < 201:
+        return {"dip_hit": False}
+    last, prev = d.iloc[-1], d.iloc[-2]
+    close, a = float(last["close"]), float(last["atr"]) if pd.notna(last["atr"]) else np.nan
+    r, rp, e200 = float(last["rsi"]), float(prev["rsi"]), float(last["ema200"])
+    hit = bool(np.isfinite(a) and a > 0 and r < level <= rp and close > e200)
+    out = {"dip_hit": hit, "rsi_prev": rp, "above_ema200": bool(close > e200), "atr": a}
+    if np.isfinite(a) and a > 0:
+        buy = close * (1 + DIP_ENTRY_BUFFER / 100)
+        stop, sell = close - k_stop * a, close + k_target * a
+        out.update(dip_buy=buy, dip_stop=max(stop, 0.0), dip_sell=sell,
+                   dip_upside_pct=(sell / buy - 1) * 100, dip_risk_pct=(1 - stop / buy) * 100)
+    return out
+
+
+def dip_series(df: pd.DataFrame, d: pd.DataFrame | None = None, level: float = DIP_RSI) -> np.ndarray:
+    """Indici delle candele in cui la strategia dip avrebbe dato il segnale (per il Laboratorio)."""
+    d = _with_indicators(df, d)
+    r, c, e = d["rsi"].to_numpy(), d["close"].to_numpy(), d["ema200"].to_numpy()
+    ok = np.zeros(len(d), dtype=bool)
+    ok[1:] = (r[1:] < level) & (r[:-1] >= level) & (c[1:] > e[1:])
+    ok[:200] = False
+    return np.flatnonzero(ok)
